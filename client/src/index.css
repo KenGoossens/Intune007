@@ -1,0 +1,76 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* Markdown styling in chat */
+.chat-content h1,
+.chat-content h2,
+.chat-content h3 {
+  font-weight: 600;
+  margin-top: 0.5em;
+  margin-bottom: 0.25em;
+}
+.chat-content ul,
+.chat-content ol {
+  padding-left: 1.5em;
+  margin: 0.25em 0;
+}
+.chat-content table {
+  border-collapse: collapse;
+  margin: 0.5em 0;
+  font-size: 0.875rem;
+}
+.chat-content th,
+.chat-content td {
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  padding: 0.35em 0.75em;
+  text-align: left;
+}
+.chat-content th {
+  background: rgba(255, 255, 255, 0.05);
+  font-weight: 600;
+}
+.chat-content code {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 0.15em 0.35em;
+  border-radius: 3px;
+  font-size: 0.85em;
+}
+.chat-content pre {
+  background: rgba(0, 0, 0, 0.3);
+  padding: 0.75em;
+  border-radius: 6px;
+  overflow-x: auto;
+}
+.chat-content pre code {
+  background: none;
+  padding: 0;
+}

@@ -1,0 +1,25 @@
+node_modules/
+dist/
+.env
+*.env.local
+*.env.development
+.env.*.local
+
+# Build outputs
+server/dist/
+client/dist/
+shared/dist/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*

@@ -1,0 +1,275 @@
+import {
+  Monitor,
+  ShieldCheck,
+  Settings,
+  AppWindow,
+  KeyRound,
+  Laptop,
+  Clock,
+  X,
+} from "lucide-react";
+import { useChatStore } from "../stores/chatStore.ts";
+import type { DataPanel as DataPanelType } from "@intune-agent/shared";
+import DeviceTable from "./DeviceTable.tsx";
+import GenericTable from "./GenericTable.tsx";
+import ComplianceStatusCard from "./ComplianceStatusCard.tsx";
+
+const PANEL_ICONS: Record<string, React.ReactNode> = {
+  devices: <Monitor size={16} />,
+  device_details: <Monitor size={16} />,
+  compliance_policies: <ShieldCheck size={16} />,
+  compliance_status: <ShieldCheck size={16} />,
+  device_configurations: <Settings size={16} />,
+  mobile_apps: <AppWindow size={16} />,
+  app_install_status: <AppWindow size={16} />,
+  conditional_access: <KeyRound size={16} />,
+  autopilot_devices: <Laptop size={16} />,
+  autopilot_profiles: <Laptop size={16} />,
+};
+
+export default function DataPanel() {
+  const { dataPanels, clearPanels } = useChatStore();
+
+  if (dataPanels.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full text-gray-500">
+        <Monitor size={48} className="mb-4 text-gray-600" />
+        <h3 className="text-lg font-medium text-gray-400 mb-1">Data Panels</h3>
+        <p className="text-sm text-center max-w-xs">
+          Query results will appear here as the agent fetches data from Intune.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
+        <h2 className="text-sm font-semibold text-gray-300">
+          Query Results ({dataPanels.length})
+        </h2>
+        <button
+          onClick={clearPanels}
+          className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
+        >
+          Clear all
+        </button>
+      </div>
+
+      {/* Panels stack */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {dataPanels.map((panel) => (
+          <PanelCard key={panel.id} panel={panel} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PanelCard({ panel }: { panel: DataPanelType }) {
+  const icon = PANEL_ICONS[panel.type] || <Monitor size={16} />;
+
+  return (
+    <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
+      {/* Card header */}
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-700 bg-gray-800/80">
+        <div className="flex items-center gap-2">
+          <span className="text-brand-400">{icon}</span>
+          <span className="text-sm font-medium text-gray-200">
+            {panel.title}
+          </span>
+          {panel.totalCount !== undefined && (
+            <span className="text-xs bg-gray-700 text-gray-400 px-2 py-0.5 rounded-full">
+              {panel.totalCount} total
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2 text-xs text-gray-500">
+          <Clock size={12} />
+          {new Date(panel.timestamp).toLocaleTimeString()}
+        </div>
+      </div>
+
+      {/* Card body */}
+      <div className="p-3 overflow-x-auto">
+        {renderPanelContent(panel)}
+      </div>
+    </div>
+  );
+}
+
+function renderPanelContent(panel: DataPanelType) {
+  if (!panel.data || panel.data.length === 0) {
+    return (
+      <p className="text-sm text-gray-500 py-4 text-center">No data returned</p>
+    );
+  }
+
+  switch (panel.type) {
+    case "devices":
+      return (
+        <DeviceTable
+          data={panel.data as Record<string, unknown>[]}
+          columns={[
+            { key: "deviceName", label: "Device Name" },
+            { key: "operatingSystem", label: "OS" },
+            { key: "osVersion", label: "Version" },
+            { key: "complianceState", label: "Compliance" },
+            { key: "managedDeviceOwnerType", label: "Ownership" },
+            { key: "userPrincipalName", label: "User" },
+            { key: "lastSyncDateTime", label: "Last Sync" },
+          ]}
+        />
+      );
+
+    case "compliance_status":
+      return <ComplianceStatusCard data={panel.data[0] as Record<string, number>} />;
+
+    case "compliance_policies":
+      return (
+        <GenericTable
+          data={panel.data as Record<string, unknown>[]}
+          columns={[
+            { key: "displayName", label: "Policy Name" },
+            { key: "description", label: "Description" },
+            { key: "createdDateTime", label: "Created" },
+            { key: "lastModifiedDateTime", label: "Modified" },
+          ]}
+        />
+      );
+
+    case "device_configurations":
+      return (
+        <GenericTable
+          data={panel.data as Record<string, unknown>[]}
+          columns={[
+            { key: "displayName", label: "Profile Name" },
+            { key: "description", label: "Description" },
+            { key: "version", label: "Version" },
+            { key: "lastModifiedDateTime", label: "Modified" },
+          ]}
+        />
+      );
+
+    case "mobile_apps":
+      return (
+        <GenericTable
+          data={panel.data as Record<string, unknown>[]}
+          columns={[
+            { key: "displayName", label: "App Name" },
+            { key: "publisher", label: "Publisher" },
+            { key: "createdDateTime", label: "Created" },
+            { key: "lastModifiedDateTime", label: "Modified" },
+          ]}
+        />
+      );
+
+    case "conditional_access":
+      return (
+        <GenericTable
+          data={panel.data as Record<string, unknown>[]}
+          columns={[
+            { key: "displayName", label: "Policy Name" },
+            { key: "state", label: "State" },
+            { key: "createdDateTime", label: "Created" },
+            { key: "modifiedDateTime", label: "Modified" },
+          ]}
+        />
+      );
+
+    case "autopilot_devices":
+      return (
+        <GenericTable
+          data={panel.data as Record<string, unknown>[]}
+          columns={[
+            { key: "serialNumber", label: "Serial Number" },
+            { key: "model", label: "Model" },
+            { key: "manufacturer", label: "Manufacturer" },
+            { key: "groupTag", label: "Group Tag" },
+            { key: "enrollmentState", label: "Enrollment" },
+            { key: "lastContactedDateTime", label: "Last Contact" },
+          ]}
+        />
+      );
+
+    case "autopilot_profiles":
+      return (
+        <GenericTable
+          data={panel.data as Record<string, unknown>[]}
+          columns={[
+            { key: "displayName", label: "Profile Name" },
+            { key: "description", label: "Description" },
+            { key: "language", label: "Language" },
+            { key: "lastModifiedDateTime", label: "Modified" },
+          ]}
+        />
+      );
+
+    case "detected_apps":
+      return (
+        <GenericTable
+          data={panel.data as Record<string, unknown>[]}
+          columns={[
+            { key: "displayName", label: "App Name" },
+            { key: "version", label: "Version" },
+            { key: "sizeInByte", label: "Size" },
+            { key: "deviceCount", label: "Devices" },
+          ]}
+        />
+      );
+
+    case "device_configuration_states":
+      return (
+        <GenericTable
+          data={panel.data as Record<string, unknown>[]}
+          columns={[
+            { key: "displayName", label: "Profile Name" },
+            { key: "state", label: "State" },
+            { key: "platformType", label: "Platform" },
+            { key: "version", label: "Version" },
+            { key: "settingCount", label: "Settings" },
+          ]}
+        />
+      );
+
+    case "device_app_install_states":
+      return (
+        <GenericTable
+          data={panel.data as Record<string, unknown>[]}
+          columns={[
+            { key: "appName", label: "App Name" },
+            { key: "publisher", label: "Publisher" },
+            { key: "installState", label: "Install State" },
+            { key: "lastSyncDateTime", label: "Last Sync" },
+            { key: "errorCode", label: "Error Code" },
+          ]}
+        />
+      );
+
+    default:
+      return (
+        <GenericTable
+          data={panel.data as Record<string, unknown>[]}
+          columns={inferColumns(panel.data as Record<string, unknown>[])}
+        />
+      );
+  }
+}
+
+function inferColumns(
+  data: Record<string, unknown>[]
+): { key: string; label: string }[] {
+  if (!data.length) return [];
+  const first = data[0];
+  return Object.keys(first)
+    .filter((k) => !k.startsWith("@") && k !== "id")
+    .slice(0, 6)
+    .map((k) => ({
+      key: k,
+      label: k
+        .replace(/([A-Z])/g, " $1")
+        .replace(/^./, (c) => c.toUpperCase())
+        .trim(),
+    }));
+}
