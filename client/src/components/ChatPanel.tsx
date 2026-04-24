@@ -6,11 +6,13 @@ import {
   Bot,
   User,
   Search,
+  X,
 } from "lucide-react";
+import ReactMarkdown from "react-markdown";
 import { useChatStore } from "../stores/chatStore.ts";
 import { useAgentStream } from "../hooks/useAgentStream.ts";
 
-export default function ChatPanel() {
+export default function ChatPanel({ onClose }: { onClose?: () => void }) {
   const [input, setInput] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -49,13 +51,24 @@ export default function ChatPanel() {
             <p className="text-xs text-gray-400">AI-Powered Intune Management</p>
           </div>
         </div>
-        <button
-          onClick={clearChat}
-          className="p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors"
-          title="Clear conversation"
-        >
-          <Trash2 size={16} />
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={clearChat}
+            className="p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors"
+            title="Clear conversation"
+          >
+            <Trash2 size={16} />
+          </button>
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="p-2 text-gray-400 hover:text-white hover:bg-gray-800 rounded-lg transition-colors"
+              title="Close agent"
+            >
+              <X size={16} />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Messages */}
@@ -74,8 +87,12 @@ export default function ChatPanel() {
               {[
                 "How many managed devices do I have?",
                 "Show me non-compliant devices",
-                "List all Conditional Access policies",
+                "List all Azure AD security groups",
+                "Show recent security alerts",
                 "What apps are deployed?",
+                "Sync a device with Intune",
+                "Show me the audit logs",
+                "Check Windows Update compliance",
               ].map((suggestion) => (
                 <button
                   key={suggestion}
@@ -110,7 +127,13 @@ export default function ChatPanel() {
                   : "bg-gray-800 text-gray-200"
               }`}
             >
-              <div className="chat-content whitespace-pre-wrap">{msg.content}</div>
+              {msg.role === "user" ? (
+                <div className="whitespace-pre-wrap">{msg.content}</div>
+              ) : (
+                <div className="chat-markdown">
+                  <ReactMarkdown>{msg.content}</ReactMarkdown>
+                </div>
+              )}
             </div>
             {msg.role === "user" && (
               <div className="w-7 h-7 bg-gray-700 rounded-lg flex items-center justify-center shrink-0 mt-0.5">

@@ -69,7 +69,22 @@ export type DataPanelType =
   | "autopilot_profiles"
   | "device_details"
   | "remediation_scripts"
-  | "policy_analysis";
+  | "policy_analysis"
+  | "device_action"
+  | "groups"
+  | "group_members"
+  | "security_alerts"
+  | "bitlocker_keys"
+  | "device_threat_summary"
+  | "audit_logs"
+  | "sign_in_logs"
+  | "directory_audit_logs"
+  | "update_rings"
+  | "update_compliance"
+  | "compliance_trend"
+  | "agent_notes"
+  | "scheduled_tasks"
+  | "tenants";
 
 export interface DataPanel {
   id: string;
@@ -98,6 +113,35 @@ export const TOOL_TO_PANEL_TYPE: Record<string, DataPanelType> = {
   generate_remediation_script: "remediation_scripts",
   list_remediation_scripts: "remediation_scripts",
   analyze_policies: "policy_analysis",
+  sync_device: "device_action",
+  restart_device: "device_action",
+  lock_device: "device_action",
+  reset_passcode: "device_action",
+  retire_device: "device_action",
+  wipe_device: "device_action",
+  get_groups: "groups",
+  get_group_members: "group_members",
+  create_group: "groups",
+  add_group_member: "groups",
+  get_security_alerts: "security_alerts",
+  get_bitlocker_keys: "bitlocker_keys",
+  get_device_threat_summary: "device_threat_summary",
+  get_audit_logs: "audit_logs",
+  get_sign_in_logs: "sign_in_logs",
+  get_directory_audit_logs: "directory_audit_logs",
+  create_compliance_policy: "compliance_policies",
+  assign_policy: "compliance_policies",
+  update_conditional_access_policy: "conditional_access",
+  get_update_rings: "update_rings",
+  get_update_compliance: "update_compliance",
+  get_compliance_trend: "compliance_trend",
+  save_note: "agent_notes",
+  recall_notes: "agent_notes",
+  create_scheduled_task: "scheduled_tasks",
+  list_scheduled_tasks: "scheduled_tasks",
+  manage_scheduled_task: "scheduled_tasks",
+  list_tenants: "tenants",
+  switch_tenant: "tenants",
 };
 
 export const TOOL_TO_PANEL_TITLE: Record<string, string> = {
@@ -117,6 +161,35 @@ export const TOOL_TO_PANEL_TITLE: Record<string, string> = {
   generate_remediation_script: "Generated Remediation Script",
   list_remediation_scripts: "Remediation Scripts",
   analyze_policies: "Policy Analysis",
+  sync_device: "Device Action — Sync",
+  restart_device: "Device Action — Restart",
+  lock_device: "Device Action — Lock",
+  reset_passcode: "Device Action — Reset Passcode",
+  retire_device: "Device Action — Retire",
+  wipe_device: "Device Action — Wipe",
+  get_groups: "Azure AD Groups",
+  get_group_members: "Group Members",
+  create_group: "Created Group",
+  add_group_member: "Group Membership Update",
+  get_security_alerts: "Security Alerts",
+  get_bitlocker_keys: "BitLocker Recovery Keys",
+  get_device_threat_summary: "Device Threat Summary",
+  get_audit_logs: "Intune Audit Logs",
+  get_sign_in_logs: "Sign-In Logs",
+  get_directory_audit_logs: "Directory Audit Logs",
+  create_compliance_policy: "Created Compliance Policy",
+  assign_policy: "Policy Assignment",
+  update_conditional_access_policy: "CA Policy Update",
+  get_update_rings: "Windows Update Rings",
+  get_update_compliance: "Update Compliance Summary",
+  get_compliance_trend: "Compliance Trend",
+  save_note: "Saved Note",
+  recall_notes: "Recalled Notes",
+  create_scheduled_task: "Created Scheduled Task",
+  list_scheduled_tasks: "Scheduled Tasks",
+  manage_scheduled_task: "Task Management",
+  list_tenants: "Configured Tenants",
+  switch_tenant: "Tenant Switch",
 };
 
 // ─── Intune Entity Types (lean versions for display) ─────────────
@@ -201,6 +274,88 @@ export interface AutopilotProfileInfo {
   lastModifiedDateTime: string;
 }
 
+// ─── Device Actions ──────────────────────────────────────────────
+
+export interface DeviceActionResult {
+  success: boolean;
+  action: string;
+  deviceId: string;
+  message: string;
+  timestamp: string;
+}
+
+// ─── Groups ──────────────────────────────────────────────────────
+
+export interface GroupInfo {
+  id: string;
+  displayName: string;
+  description: string;
+  groupTypes: string[];
+  membershipRule: string | null;
+  membershipRuleProcessingState: string | null;
+  securityEnabled: boolean;
+  mailEnabled: boolean;
+  mail: string | null;
+  createdDateTime: string;
+}
+
+export interface GroupMember {
+  id: string;
+  displayName: string;
+  userPrincipalName?: string;
+  deviceId?: string;
+  operatingSystem?: string;
+  odataType: string;
+}
+
+// ─── Security ────────────────────────────────────────────────────
+
+export interface SecurityAlertInfo {
+  id: string;
+  title: string;
+  severity: string;
+  status: string;
+  category: string;
+  description: string;
+  createdDateTime: string;
+  lastUpdateDateTime: string;
+  serviceSources: string[];
+}
+
+export interface BitLockerKeyInfo {
+  id: string;
+  createdDateTime: string;
+  deviceId: string;
+  volumeType: string;
+  key?: string;
+}
+
+// ─── Logs ────────────────────────────────────────────────────────
+
+export interface AuditEventInfo {
+  id: string;
+  displayName: string;
+  componentName: string;
+  activity: string;
+  activityDateTime: string;
+  activityType: string;
+  actor: Record<string, unknown>;
+  resources: Record<string, unknown>[];
+}
+
+export interface SignInLogInfo {
+  id: string;
+  userDisplayName: string;
+  userPrincipalName: string;
+  appDisplayName: string;
+  ipAddress: string;
+  clientAppUsed: string;
+  status: Record<string, unknown>;
+  createdDateTime: string;
+  location: Record<string, unknown>;
+  deviceDetail: Record<string, unknown>;
+}
+
 // ─── API Request/Response ────────────────────────────────────────
 
 export interface ChatRequest {
@@ -218,7 +373,9 @@ export type AlertCheckType =
   | "stale_devices"
   | "failed_app_installs"
   | "ca_policy_issues"
-  | "new_enrollments";
+  | "new_enrollments"
+  | "high_risk_devices"
+  | "update_compliance";
 
 export interface Alert {
   id: string;
@@ -282,6 +439,20 @@ export const DEFAULT_ALERT_CONFIGS: AlertCheckConfig[] = [
     intervalMinutes: 15,
     label: "New Enrollments",
     description: "Alert on newly enrolled devices (last 24 hours)",
+  },
+  {
+    type: "high_risk_devices",
+    enabled: true,
+    intervalMinutes: 30,
+    label: "High Risk Devices",
+    description: "Devices with high/critical security alerts from Defender",
+  },
+  {
+    type: "update_compliance",
+    enabled: true,
+    intervalMinutes: 60,
+    label: "Update Compliance",
+    description: "Devices not compliant with Windows Update policies",
   },
 ];
 

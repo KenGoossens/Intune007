@@ -7,6 +7,14 @@ import {
   Laptop,
   Clock,
   X,
+  Users,
+  ShieldAlert,
+  FileText,
+  Zap,
+  RefreshCw,
+  Brain,
+  CalendarClock,
+  Building,
 } from "lucide-react";
 import { useChatStore } from "../stores/chatStore.ts";
 import type { DataPanel as DataPanelType } from "@intune-agent/shared";
@@ -25,6 +33,21 @@ const PANEL_ICONS: Record<string, React.ReactNode> = {
   conditional_access: <KeyRound size={16} />,
   autopilot_devices: <Laptop size={16} />,
   autopilot_profiles: <Laptop size={16} />,
+  device_action: <Zap size={16} />,
+  groups: <Users size={16} />,
+  group_members: <Users size={16} />,
+  security_alerts: <ShieldAlert size={16} />,
+  bitlocker_keys: <KeyRound size={16} />,
+  device_threat_summary: <ShieldAlert size={16} />,
+  audit_logs: <FileText size={16} />,
+  sign_in_logs: <FileText size={16} />,
+  directory_audit_logs: <FileText size={16} />,
+  update_rings: <RefreshCw size={16} />,
+  update_compliance: <RefreshCw size={16} />,
+  compliance_trend: <Monitor size={16} />,
+  agent_notes: <Brain size={16} />,
+  scheduled_tasks: <CalendarClock size={16} />,
+  tenants: <Building size={16} />,
 };
 
 export default function DataPanel() {
@@ -243,6 +266,121 @@ function renderPanelContent(panel: DataPanelType) {
             { key: "installState", label: "Install State" },
             { key: "lastSyncDateTime", label: "Last Sync" },
             { key: "errorCode", label: "Error Code" },
+          ]}
+        />
+      );
+
+    // ─── Device Actions ────────────────────────────────────────
+    case "device_action":
+      return (
+        <GenericTable
+          data={panel.data as Record<string, unknown>[]}
+          columns={[
+            { key: "action", label: "Action" },
+            { key: "success", label: "Status" },
+            { key: "message", label: "Message" },
+            { key: "deviceId", label: "Device ID" },
+            { key: "timestamp", label: "Timestamp" },
+          ]}
+        />
+      );
+
+    // ─── Groups ────────────────────────────────────────────────
+    case "groups":
+      return (
+        <GenericTable
+          data={panel.data as Record<string, unknown>[]}
+          columns={[
+            { key: "displayName", label: "Group Name" },
+            { key: "description", label: "Description" },
+            { key: "securityEnabled", label: "Security" },
+            { key: "mailEnabled", label: "Mail" },
+            { key: "membershipRuleProcessingState", label: "Dynamic" },
+            { key: "createdDateTime", label: "Created" },
+          ]}
+        />
+      );
+
+    case "group_members":
+      return (
+        <GenericTable
+          data={panel.data as Record<string, unknown>[]}
+          columns={[
+            { key: "displayName", label: "Name" },
+            { key: "odataType", label: "Type" },
+            { key: "userPrincipalName", label: "UPN" },
+            { key: "operatingSystem", label: "OS" },
+          ]}
+        />
+      );
+
+    // ─── Security ──────────────────────────────────────────────
+    case "security_alerts":
+      return (
+        <GenericTable
+          data={panel.data as Record<string, unknown>[]}
+          columns={[
+            { key: "title", label: "Alert" },
+            { key: "severity", label: "Severity" },
+            { key: "status", label: "Status" },
+            { key: "category", label: "Category" },
+            { key: "createdDateTime", label: "Created" },
+          ]}
+        />
+      );
+
+    case "bitlocker_keys":
+      return (
+        <GenericTable
+          data={panel.data as Record<string, unknown>[]}
+          columns={[
+            { key: "id", label: "Key ID" },
+            { key: "deviceId", label: "Device ID" },
+            { key: "volumeType", label: "Volume" },
+            { key: "createdDateTime", label: "Created" },
+          ]}
+        />
+      );
+
+    // ─── Logs ──────────────────────────────────────────────────
+    case "audit_logs":
+      return (
+        <GenericTable
+          data={panel.data as Record<string, unknown>[]}
+          columns={[
+            { key: "displayName", label: "Event" },
+            { key: "componentName", label: "Component" },
+            { key: "activity", label: "Activity" },
+            { key: "activityDateTime", label: "Date" },
+          ]}
+        />
+      );
+
+    case "sign_in_logs":
+      return (
+        <GenericTable
+          data={panel.data as Record<string, unknown>[]}
+          columns={[
+            { key: "userDisplayName", label: "User" },
+            { key: "appDisplayName", label: "App" },
+            { key: "ipAddress", label: "IP" },
+            { key: "clientAppUsed", label: "Client" },
+            { key: "createdDateTime", label: "Date" },
+          ]}
+        />
+      );
+
+    // ─── Windows Update ────────────────────────────────────────
+    case "update_rings":
+      return (
+        <GenericTable
+          data={panel.data as Record<string, unknown>[]}
+          columns={[
+            { key: "displayName", label: "Ring Name" },
+            { key: "qualityUpdatesDeferralPeriodInDays", label: "Quality Deferral" },
+            { key: "featureUpdatesDeferralPeriodInDays", label: "Feature Deferral" },
+            { key: "automaticUpdateMode", label: "Update Mode" },
+            { key: "lastModifiedDateTime", label: "Modified" },
           ]}
         />
       );

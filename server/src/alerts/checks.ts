@@ -1,4 +1,6 @@
 import { getGraphClient, fetchWithPagination } from "../graph/client.js";
+import { getSecurityAlerts } from "../graph/security.js";
+import { getUpdateComplianceSummary } from "../graph/windowsUpdate.js";
 import type { Alert, AlertCheckType } from "@intune-agent/shared";
 
 let alertIdCounter = 0;
@@ -290,4 +292,69 @@ export async function checkNewEnrollments(): Promise<Alert[]> {
       result.items.length
     ),
   ];
+}
+
+// ─── 7. High Risk Devices (Security Alerts) ─────────────────────
+
+export async function checkHighRiskDevices(): Promise<Alert[]> {
+  try {
+    const result = await getSecurityAlerts({
+      filter: "severity eq 'high' or severity eq 'critical'",
+      top: 50,
+    });
+
+    if (result.items.length === 0) return [];
+
+    const activeAlerts = result.items.filter(
+      (a) => String(a.status).toLowerCase() !== "resolved"
+    );
+
+    if (activeAlerts.length === 0) return [];
+
+    return [
+      createAlert(
+        "high_risk_devices",
+        activeAlerts.some((a) => String(a.severity).toLowerCase() === "critical")
+          ? "critical"
+          : "warning",
+        `${activeAlerts.length} High/Critical Security Alert${activeAlerts.length > 1 ? "s" : ""}`,
+        `${activeAlerts.length} unresolved high or critical severity security alert(s) detected.`,
+        activeAlerts,
+        activeAlerts.length
+      ),
+    ];
+  } catch {
+    // If SecurityEvents.Read.All is not granted, skip silently
+    return [];
+  }
+}
+
+// ─── 8. Update Compliance ───────────────────────────────────────
+
+export async function checkUpdateCompliance(): Promise<Alert[]> {
+  try {
+    const summary = await getUpdateComplianceSummary();
+
+    if (summary.error) return [];
+
+    const nonCompliant = (summary.nonCompliantDeviceCount as number) || 0;
+    const errorCount = (summary.errorDeviceCount as number) || 0;
+    const total = nonCompliant + errorCount;
+
+    if (total === 0) return [];
+
+    return [
+      createAlert(
+        "update_compliance",
+        total >= 10 ? "warning" : "info",
+        `${total} Device${total > 1 ? "s" : ""} Behind on Updates`,
+        `${nonCompliant} device(s) are non-compliant with update policies and ${errorCount} have update errors.`,
+        [{ nonCompliantDeviceCount: nonCompliant, errorDeviceCount: errorCount, ...summary }],
+        total
+      ),
+    ];
+  } catch {
+    // If update summary is unavailable, skip silently
+    return [];
+  }
 }

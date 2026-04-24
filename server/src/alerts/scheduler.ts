@@ -7,7 +7,10 @@ import {
   checkFailedAppInstalls,
   checkCAPolicyIssues,
   checkNewEnrollments,
+  checkHighRiskDevices,
+  checkUpdateCompliance,
 } from "./checks.js";
+import { recordMetrics } from "../analytics/history.js";
 
 type CheckFunction = () => Promise<Alert[]>;
 
@@ -18,6 +21,8 @@ const CHECK_FUNCTIONS: Record<AlertCheckType, CheckFunction> = {
   failed_app_installs: checkFailedAppInstalls,
   ca_policy_issues: checkCAPolicyIssues,
   new_enrollments: checkNewEnrollments,
+  high_risk_devices: checkHighRiskDevices,
+  update_compliance: checkUpdateCompliance,
 };
 
 class AlertScheduler {
@@ -86,6 +91,18 @@ class AlertScheduler {
     console.log(
       `[Alerts] All checks complete — ${this.alerts.length} active alert(s)\n`
     );
+
+    // Record metrics for historical trending
+    try {
+      const metrics: Array<{ name: string; value: number }> = [];
+      metrics.push({ name: "total_alerts", value: this.alerts.length });
+      for (const alert of this.alerts) {
+        metrics.push({ name: `alert_${alert.checkType}`, value: alert.count });
+      }
+      recordMetrics(metrics);
+    } catch {
+      // Don't let metric recording failures affect alert checks
+    }
   }
 
   /** Run a single check by type. */

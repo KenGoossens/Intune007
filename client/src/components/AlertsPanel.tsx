@@ -52,6 +52,8 @@ const CHECK_ICONS: Record<string, React.ReactNode> = {
   failed_app_installs: <AppWindow size={14} />,
   ca_policy_issues: <KeyRound size={14} />,
   new_enrollments: <PlusCircle size={14} />,
+  high_risk_devices: <AlertCircle size={14} />,
+  update_compliance: <Monitor size={14} />,
 };
 
 export default function AlertsPanel() {

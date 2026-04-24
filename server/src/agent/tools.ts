@@ -276,6 +276,123 @@ export const agentTools: ChatCompletionTool[] = [
       },
     },
   },
+  // ─── Device Actions ─────────────────────────────────────────────
+  {
+    type: "function",
+    function: {
+      name: "sync_device",
+      description:
+        "Force a managed device to sync with Intune immediately. Use this when a device needs to pick up new policies, apps, or configuration changes right away.",
+      parameters: {
+        type: "object",
+        properties: {
+          deviceId: {
+            type: "string",
+            description: "The unique ID of the managed device. Use get_managed_devices to find it first.",
+          },
+        },
+        required: ["deviceId"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "restart_device",
+      description:
+        "Remotely restart a managed device. The device will reboot on its next check-in.",
+      parameters: {
+        type: "object",
+        properties: {
+          deviceId: {
+            type: "string",
+            description: "The unique ID of the managed device.",
+          },
+        },
+        required: ["deviceId"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "lock_device",
+      description:
+        "Remotely lock a managed device. Useful for lost or stolen devices.",
+      parameters: {
+        type: "object",
+        properties: {
+          deviceId: {
+            type: "string",
+            description: "The unique ID of the managed device.",
+          },
+        },
+        required: ["deviceId"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "reset_passcode",
+      description:
+        "Reset the passcode/PIN on a managed device. Generates a new temporary passcode.",
+      parameters: {
+        type: "object",
+        properties: {
+          deviceId: {
+            type: "string",
+            description: "The unique ID of the managed device.",
+          },
+        },
+        required: ["deviceId"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "retire_device",
+      description:
+        "DESTRUCTIVE — Retire a managed device. Removes all corporate data, apps, and policies but keeps personal data. Always confirm with the user before executing this action.",
+      parameters: {
+        type: "object",
+        properties: {
+          deviceId: {
+            type: "string",
+            description: "The unique ID of the managed device.",
+          },
+        },
+        required: ["deviceId"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "wipe_device",
+      description:
+        "DESTRUCTIVE — Factory reset a managed device. ALL data on the device will be permanently deleted. This is irreversible. Always confirm with the user before executing this action.",
+      parameters: {
+        type: "object",
+        properties: {
+          deviceId: {
+            type: "string",
+            description: "The unique ID of the managed device.",
+          },
+          keepEnrollmentData: {
+            type: "boolean",
+            description: "Whether to keep the enrollment data after wipe (default: false)",
+          },
+          keepUserData: {
+            type: "boolean",
+            description: "Whether to keep user data after wipe (default: false)",
+          },
+        },
+        required: ["deviceId"],
+      },
+    },
+  },
   // ─── Remediation Tools ──────────────────────────────────────────
   {
     type: "function",
@@ -370,6 +487,498 @@ export const agentTools: ChatCompletionTool[] = [
         type: "object",
         properties: {},
         required: [],
+      },
+    },
+  },
+  // ─── Group Management Tools ─────────────────────────────────────
+  {
+    type: "function",
+    function: {
+      name: "get_groups",
+      description:
+        "List Azure AD / Entra ID groups. Returns group name, description, type (security/M365), membership rule, and dates. Use filter for OData queries or search for name-based lookup.",
+      parameters: {
+        type: "object",
+        properties: {
+          filter: {
+            type: "string",
+            description: "OData $filter expression. Examples: \"securityEnabled eq true\", \"displayName eq 'My Group'\"",
+          },
+          search: {
+            type: "string",
+            description: "Search groups by display name (partial match). Use this instead of filter for name searches.",
+          },
+          top: {
+            type: "number",
+            description: "Maximum number of groups to return (default: 50)",
+          },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_group_members",
+      description:
+        "List members of a specific Azure AD group. Returns member name, type (user/device), UPN, and device info if applicable.",
+      parameters: {
+        type: "object",
+        properties: {
+          groupId: {
+            type: "string",
+            description: "The unique ID of the group. Use get_groups to find it first.",
+          },
+          top: {
+            type: "number",
+            description: "Maximum number of members to return (default: 50)",
+          },
+        },
+        required: ["groupId"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "create_group",
+      description:
+        "Create a new Azure AD security group. Useful for organizing devices/users for policy and app targeting.",
+      parameters: {
+        type: "object",
+        properties: {
+          displayName: {
+            type: "string",
+            description: "Display name for the new group",
+          },
+          description: {
+            type: "string",
+            description: "Description of the group's purpose",
+          },
+        },
+        required: ["displayName", "description"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "add_group_member",
+      description:
+        "Add a user or device to an Azure AD group. Requires the group ID and the member's directory object ID.",
+      parameters: {
+        type: "object",
+        properties: {
+          groupId: {
+            type: "string",
+            description: "The unique ID of the target group",
+          },
+          memberId: {
+            type: "string",
+            description: "The directory object ID of the user or device to add",
+          },
+        },
+        required: ["groupId", "memberId"],
+      },
+    },
+  },
+  // ─── Security & Threat Intelligence Tools ──────────────────────
+  {
+    type: "function",
+    function: {
+      name: "get_security_alerts",
+      description:
+        "Get security alerts from Microsoft 365 Defender / Security Center. Returns alert title, severity, status, category, and timestamps. Use filter to narrow by severity or status.",
+      parameters: {
+        type: "object",
+        properties: {
+          filter: {
+            type: "string",
+            description: "OData $filter expression. Examples: \"severity eq 'high'\", \"status eq 'new'\"",
+          },
+          top: {
+            type: "number",
+            description: "Maximum number of alerts to return (default: 50)",
+          },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_bitlocker_keys",
+      description:
+        "Get BitLocker recovery keys. Can filter by device ID to find keys for a specific device. Returns key ID, device ID, and volume type. The actual recovery key value requires a separate call.",
+      parameters: {
+        type: "object",
+        properties: {
+          deviceId: {
+            type: "string",
+            description: "Optional device ID to filter recovery keys for a specific device",
+          },
+          top: {
+            type: "number",
+            description: "Maximum number of keys to return (default: 50)",
+          },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_device_threat_summary",
+      description:
+        "Get an overall threat and device summary including enrollment counts, OS distribution, and exchange access state summary.",
+      parameters: {
+        type: "object",
+        properties: {},
+        required: [],
+      },
+    },
+  },
+  // ─── Log Collection Tools ─────────────────────────────────────
+  {
+    type: "function",
+    function: {
+      name: "get_audit_logs",
+      description:
+        "Get Intune audit events — shows admin actions like policy changes, device actions, app assignments. Use filter to narrow by date or activity type.",
+      parameters: {
+        type: "object",
+        properties: {
+          filter: {
+            type: "string",
+            description: "OData $filter expression. Example: \"activityDateTime gt 2024-01-01T00:00:00Z\"",
+          },
+          top: {
+            type: "number",
+            description: "Maximum number of events to return (default: 50)",
+          },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_sign_in_logs",
+      description:
+        "Get Azure AD sign-in logs — shows user and device sign-in activity including success/failure, location, app used, and device details.",
+      parameters: {
+        type: "object",
+        properties: {
+          filter: {
+            type: "string",
+            description: "OData $filter expression. Example: \"userPrincipalName eq 'user@contoso.com'\", \"status/errorCode ne 0\"",
+          },
+          top: {
+            type: "number",
+            description: "Maximum number of sign-ins to return (default: 50)",
+          },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_directory_audit_logs",
+      description:
+        "Get Azure AD directory audit logs — shows tenant-level admin actions like group changes, role assignments, and policy modifications.",
+      parameters: {
+        type: "object",
+        properties: {
+          filter: {
+            type: "string",
+            description: "OData $filter expression. Example: \"category eq 'GroupManagement'\"",
+          },
+          top: {
+            type: "number",
+            description: "Maximum number of audit entries to return (default: 50)",
+          },
+        },
+        required: [],
+      },
+    },
+  },
+  // ─── Policy Management Tools ──────────────────────────────────
+  {
+    type: "function",
+    function: {
+      name: "create_compliance_policy",
+      description:
+        "Create a new Intune device compliance policy. Provide the full policy body including @odata.type for the platform (e.g., #microsoft.graph.windows10CompliancePolicy). Always confirm the policy details with the user before creating.",
+      parameters: {
+        type: "object",
+        properties: {
+          displayName: {
+            type: "string",
+            description: "Display name for the compliance policy",
+          },
+          description: {
+            type: "string",
+            description: "Description of the policy",
+          },
+          platform: {
+            type: "string",
+            enum: ["windows10", "ios", "android", "macOS"],
+            description: "Target platform for the policy",
+          },
+          policyBody: {
+            type: "string",
+            description: "JSON string of the full policy body including platform-specific settings. Must include @odata.type.",
+          },
+        },
+        required: ["displayName", "platform", "policyBody"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "assign_policy",
+      description:
+        "Assign a compliance policy or configuration profile to one or more Azure AD groups.",
+      parameters: {
+        type: "object",
+        properties: {
+          policyId: {
+            type: "string",
+            description: "The ID of the compliance policy or configuration profile",
+          },
+          policyType: {
+            type: "string",
+            enum: ["compliance", "configuration"],
+            description: "Type of policy being assigned",
+          },
+          groupIds: {
+            type: "string",
+            description: "Comma-separated list of Azure AD group IDs to assign the policy to",
+          },
+        },
+        required: ["policyId", "policyType", "groupIds"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "update_conditional_access_policy",
+      description:
+        "Update a Conditional Access policy — can enable, disable, or set to report-only mode. Always confirm with the user before changing CA policies.",
+      parameters: {
+        type: "object",
+        properties: {
+          policyId: {
+            type: "string",
+            description: "The ID of the Conditional Access policy",
+          },
+          state: {
+            type: "string",
+            enum: ["enabled", "disabled", "enabledForReportingButNotEnforced"],
+            description: "New state for the policy",
+          },
+        },
+        required: ["policyId", "state"],
+      },
+    },
+  },
+  // ─── Windows Update Tools ─────────────────────────────────────
+  {
+    type: "function",
+    function: {
+      name: "get_update_rings",
+      description:
+        "List Windows Update for Business configuration profiles (update rings). Shows deferral periods, delivery optimization mode, and update settings.",
+      parameters: {
+        type: "object",
+        properties: {
+          top: {
+            type: "number",
+            description: "Maximum number of update rings to return (default: 50)",
+          },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_update_compliance",
+      description:
+        "Get the overall Windows Update compliance summary across all devices. Shows counts of compliant, non-compliant, error, and unknown devices for software updates.",
+      parameters: {
+        type: "object",
+        properties: {},
+        required: [],
+      },
+    },
+  },
+  // ─── Historical Trending Tools ────────────────────────────────
+  {
+    type: "function",
+    function: {
+      name: "get_compliance_trend",
+      description:
+        "Get historical compliance trend data over time. Returns daily aggregated counts of compliant vs non-compliant devices. Use this when the user asks about trends, historical data, or 'how has compliance changed'.",
+      parameters: {
+        type: "object",
+        properties: {
+          metricName: {
+            type: "string",
+            description: "Metric to trend. Options: compliant_devices, non_compliant_devices, total_devices, stale_devices, total_alerts",
+          },
+          days: {
+            type: "number",
+            description: "Number of days of history to return (default: 30, max: 90)",
+          },
+        },
+        required: ["metricName"],
+      },
+    },
+  },
+  // ─── Agent Memory Tools ───────────────────────────────────────
+  {
+    type: "function",
+    function: {
+      name: "save_note",
+      description:
+        "Save a note to the agent's persistent memory. Use this when the user asks you to remember something about their environment, preferences, or operational notes. Notes persist across conversations.",
+      parameters: {
+        type: "object",
+        properties: {
+          content: {
+            type: "string",
+            description: "The note content to save",
+          },
+          category: {
+            type: "string",
+            description: "Category for the note (e.g., 'tenant', 'preference', 'procedure', 'general')",
+          },
+        },
+        required: ["content"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "recall_notes",
+      description:
+        "Search the agent's persistent memory for previously saved notes. Use this when the user references something they asked you to remember, or when you need context about the tenant.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description: "Keyword or phrase to search for in saved notes",
+          },
+        },
+        required: ["query"],
+      },
+    },
+  },
+  // ─── Scheduled Task Tools ─────────────────────────────────────
+  {
+    type: "function",
+    function: {
+      name: "create_scheduled_task",
+      description:
+        "Create a recurring scheduled task that runs an agent query automatically. Use this when the user asks for periodic reports, scheduled checks, or automated monitoring.",
+      parameters: {
+        type: "object",
+        properties: {
+          name: {
+            type: "string",
+            description: "Descriptive name for the task",
+          },
+          prompt: {
+            type: "string",
+            description: "The agent query/prompt to execute on schedule",
+          },
+          schedule: {
+            type: "string",
+            enum: ["hourly", "daily", "weekly"],
+            description: "How often to run the task (default: daily)",
+          },
+        },
+        required: ["name", "prompt"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "list_scheduled_tasks",
+      description:
+        "List all configured scheduled tasks with their status, last run time, and schedule.",
+      parameters: {
+        type: "object",
+        properties: {},
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "manage_scheduled_task",
+      description:
+        "Enable, disable, or delete a scheduled task.",
+      parameters: {
+        type: "object",
+        properties: {
+          taskId: {
+            type: "string",
+            description: "The ID of the task to manage",
+          },
+          action: {
+            type: "string",
+            enum: ["enable", "disable", "delete"],
+            description: "Action to perform on the task",
+          },
+        },
+        required: ["taskId", "action"],
+      },
+    },
+  },
+  // ─── Multi-Tenant Tools ───────────────────────────────────────
+  {
+    type: "function",
+    function: {
+      name: "list_tenants",
+      description:
+        "List all configured Intune tenants and show which one is currently active.",
+      parameters: {
+        type: "object",
+        properties: {},
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "switch_tenant",
+      description:
+        "Switch the active tenant for subsequent Graph API queries. All tools will operate against the selected tenant.",
+      parameters: {
+        type: "object",
+        properties: {
+          tenantId: {
+            type: "string",
+            description: "The tenant ID to switch to. Use list_tenants to see available tenants.",
+          },
+        },
+        required: ["tenantId"],
       },
     },
   },
