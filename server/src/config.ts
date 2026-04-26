@@ -8,6 +8,9 @@ export const config = {
     endpoint: process.env.AZURE_OPENAI_ENDPOINT!,
     deployment: process.env.AZURE_OPENAI_DEPLOYMENT!,
     embeddingDeployment: process.env.AZURE_OPENAI_EMBEDDING_DEPLOYMENT || "text-embedding-ada-002",
+    embeddingEndpoint: process.env.AZURE_OPENAI_EMBEDDING_ENDPOINT || process.env.AZURE_OPENAI_ENDPOINT!,
+    embeddingApiKey: process.env.AZURE_OPENAI_EMBEDDING_API_KEY || process.env.AZURE_OPENAI_API_KEY!,
+    embeddingApiVersion: process.env.AZURE_OPENAI_EMBEDDING_API_VERSION || "2023-05-15",
     apiVersion: process.env.AZURE_OPENAI_API_VERSION || "2024-10-01-preview",
   },
 

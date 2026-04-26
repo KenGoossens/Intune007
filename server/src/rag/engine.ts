@@ -232,15 +232,15 @@ function chunkDocument(url: string, title: string, content: string): DocChunk[] 
  */
 async function generateEmbedding(text: string): Promise<number[]> {
   const client = new AzureOpenAI({
-    apiKey: config.azureOpenAI.apiKey,
-    endpoint: config.azureOpenAI.endpoint,
+    apiKey: config.azureOpenAI.embeddingApiKey,
+    endpoint: config.azureOpenAI.embeddingEndpoint,
     deployment: config.azureOpenAI.embeddingDeployment,
-    apiVersion: config.azureOpenAI.apiVersion,
+    apiVersion: config.azureOpenAI.embeddingApiVersion,
   });
 
   const response = await client.embeddings.create({
     model: config.azureOpenAI.embeddingDeployment,
-    input: text.substring(0, 8000), // embedding models have token limits
+    input: text.substring(0, 8000),
   });
 
   return response.data[0].embedding;
