@@ -1241,7 +1241,7 @@ export const agentTools: ChatCompletionTool[] = [
     function: {
       name: "run_compliance_forecast",
       description:
-        "Run a 'what-if' compliance forecast — predict how many devices would fail if a new requirement is applied. Supports: encryption, compliant, synced_7days, synced_14days, corporate, windows.",
+        "Run a 'what-if' compliance forecast — predict how many devices would fail if a new requirement is applied. Use this when the user asks questions like 'what if I require encryption?', 'how many devices would fail if I enforce BitLocker?', 'what happens if I require compliance?', 'what if I need all devices synced within 7 days?'. Requirement options: 'encryption' (BitLocker/FileVault), 'compliant' (current compliance), 'synced_7days', 'synced_14days', 'corporate' (company-owned only), 'windows' (Windows devices only).",
       parameters: {
         type: "object",
         properties: {

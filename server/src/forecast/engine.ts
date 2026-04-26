@@ -17,7 +17,10 @@ export interface ForecastResult {
 const REQUIREMENT_CHECKS: Record<string, (device: Record<string, unknown>) => "pass" | "fail" | "unknown"> = {
   bitlocker: (d) => d.isEncrypted === true ? "pass" : d.isEncrypted === false ? "fail" : "unknown",
   encryption: (d) => d.isEncrypted === true ? "pass" : d.isEncrypted === false ? "fail" : "unknown",
+  encrypted: (d) => d.isEncrypted === true ? "pass" : d.isEncrypted === false ? "fail" : "unknown",
+  filevault: (d) => d.isEncrypted === true ? "pass" : d.isEncrypted === false ? "fail" : "unknown",
   compliant: (d) => String(d.complianceState) === "compliant" ? "pass" : "fail",
+  compliance: (d) => String(d.complianceState) === "compliant" ? "pass" : "fail",
   synced_7days: (d) => {
     if (!d.lastSyncDateTime) return "unknown";
     const days = (Date.now() - new Date(String(d.lastSyncDateTime)).getTime()) / 86400000;
@@ -28,8 +31,17 @@ const REQUIREMENT_CHECKS: Record<string, (device: Record<string, unknown>) => "p
     const days = (Date.now() - new Date(String(d.lastSyncDateTime)).getTime()) / 86400000;
     return days <= 14 ? "pass" : "fail";
   },
+  synced: (d) => {
+    if (!d.lastSyncDateTime) return "unknown";
+    const days = (Date.now() - new Date(String(d.lastSyncDateTime)).getTime()) / 86400000;
+    return days <= 7 ? "pass" : "fail";
+  },
   corporate: (d) => String(d.managedDeviceOwnerType) === "company" ? "pass" : "fail",
+  company: (d) => String(d.managedDeviceOwnerType) === "company" ? "pass" : "fail",
   windows: (d) => String(d.operatingSystem || "").toLowerCase().includes("windows") ? "pass" : "fail",
+  macos: (d) => String(d.operatingSystem || "").toLowerCase().includes("macos") ? "pass" : "fail",
+  ios: (d) => String(d.operatingSystem || "").toLowerCase().includes("ios") ? "pass" : "fail",
+  android: (d) => String(d.operatingSystem || "").toLowerCase().includes("android") ? "pass" : "fail",
 };
 
 export async function runForecast(requirement: string): Promise<ForecastResult> {
