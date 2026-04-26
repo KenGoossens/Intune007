@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Wrench,
   Loader2,
@@ -12,10 +12,13 @@ import {
   Sparkles,
   Clock,
 } from "lucide-react";
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import {
   useRemediationStore,
   type GeneratedScript,
 } from "../stores/remediationStore.ts";
+import { useNavigationStore } from "../stores/navigationStore.ts";
 
 export default function RemediationPanel() {
   const {
@@ -36,6 +39,18 @@ export default function RemediationPanel() {
   const [activeTab, setActiveTab] = useState<"generate" | "existing">(
     "generate"
   );
+
+  // Auto-fill prompt from cross-panel navigation
+  const pendingNav = useNavigationStore((s) => s.pendingNavigation);
+  const clearNavigation = useNavigationStore((s) => s.clearNavigation);
+
+  useEffect(() => {
+    if (pendingNav?.panel === "remediation" && pendingNav.query) {
+      setPrompt(pendingNav.query);
+      setActiveTab("generate");
+      clearNavigation();
+    }
+  }, [pendingNav, clearNavigation]);
 
   useEffect(() => {
     fetchExistingScripts();
@@ -276,9 +291,20 @@ function ScriptPreview({
           </span>
         </button>
         {showDetection && (
-          <pre className="px-4 pb-3 text-xs text-gray-300 overflow-x-auto leading-relaxed font-mono bg-gray-900/50 mx-3 mb-3 rounded-lg p-3">
-            {script.detectionScript}
-          </pre>
+          <div className="mx-3 mb-3">
+            <SyntaxHighlighter
+              language="powershell"
+              style={oneDark}
+              customStyle={{
+                margin: 0,
+                borderRadius: "8px",
+                fontSize: "0.75rem",
+                border: "1px solid #374151",
+              }}
+            >
+              {script.detectionScript}
+            </SyntaxHighlighter>
+          </div>
         )}
       </div>
 
@@ -299,9 +325,20 @@ function ScriptPreview({
           </span>
         </button>
         {showRemediation && (
-          <pre className="px-4 pb-3 text-xs text-gray-300 overflow-x-auto leading-relaxed font-mono bg-gray-900/50 mx-3 mb-3 rounded-lg p-3">
-            {script.remediationScript}
-          </pre>
+          <div className="mx-3 mb-3">
+            <SyntaxHighlighter
+              language="powershell"
+              style={oneDark}
+              customStyle={{
+                margin: 0,
+                borderRadius: "8px",
+                fontSize: "0.75rem",
+                border: "1px solid #374151",
+              }}
+            >
+              {script.remediationScript}
+            </SyntaxHighlighter>
+          </div>
         )}
       </div>
 

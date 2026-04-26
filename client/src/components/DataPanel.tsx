@@ -92,6 +92,7 @@ export default function DataPanel() {
 
 function PanelCard({ panel }: { panel: DataPanelType }) {
   const icon = PANEL_ICONS[panel.type] || <Monitor size={16} />;
+  const removePanel = useChatStore((s) => s.removePanel);
 
   return (
     <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
@@ -111,6 +112,13 @@ function PanelCard({ panel }: { panel: DataPanelType }) {
         <div className="flex items-center gap-2 text-xs text-gray-500">
           <Clock size={12} />
           {new Date(panel.timestamp).toLocaleTimeString()}
+          <button
+            onClick={() => removePanel(panel.id)}
+            className="p-0.5 text-gray-600 hover:text-red-400 hover:bg-red-500/10 rounded transition-colors ml-1"
+            title="Dismiss this card"
+          >
+            <X size={13} />
+          </button>
         </div>
       </div>
 
@@ -384,6 +392,33 @@ function renderPanelContent(panel: DataPanelType) {
           ]}
         />
       );
+
+    case "update_compliance": {
+      // The data contains a summary object — check if it has a devices array
+      const compData = panel.data[0] as Record<string, unknown> | undefined;
+      const devicesList = (compData?.devices || []) as Record<string, unknown>[];
+      if (devicesList.length > 0) {
+        return (
+          <GenericTable
+            data={devicesList}
+            columns={[
+              { key: "deviceName", label: "Device Name" },
+              { key: "userPrincipalName", label: "User" },
+              { key: "osVersion", label: "OS Version" },
+              { key: "updateStatus", label: "Update Status" },
+              { key: "complianceState", label: "Compliance" },
+              { key: "lastSyncDateTime", label: "Last Sync" },
+            ]}
+          />
+        );
+      }
+      return (
+        <GenericTable
+          data={panel.data as Record<string, unknown>[]}
+          columns={inferColumns(panel.data as Record<string, unknown>[])}
+        />
+      );
+    }
 
     default:
       return (

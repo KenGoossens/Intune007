@@ -1,8 +1,11 @@
 import { getGraphClient, fetchWithPagination } from "./client.js";
 import type { MobileAppInfo } from "@intune-agent/shared";
 
+const BETA_BASE = "https://graph.microsoft.com/beta";
+
 /**
  * List mobile apps managed in Intune.
+ * Uses beta API for richer app type information.
  */
 export async function getMobileApps(options?: {
   filter?: string;
@@ -11,7 +14,7 @@ export async function getMobileApps(options?: {
   const client = getGraphClient();
   return fetchWithPagination<MobileAppInfo>(
     client,
-    "/deviceAppManagement/mobileApps",
+    `${BETA_BASE}/deviceAppManagement/mobileApps`,
     {
       filter: options?.filter,
       select:
@@ -23,6 +26,7 @@ export async function getMobileApps(options?: {
 
 /**
  * Get install status for a specific app across devices.
+ * Uses beta for richer status details.
  */
 export async function getAppInstallStatus(
   appId: string,
@@ -31,7 +35,7 @@ export async function getAppInstallStatus(
   const client = getGraphClient();
   return fetchWithPagination<unknown>(
     client,
-    `/deviceAppManagement/mobileApps/${appId}/deviceStatuses`,
+    `${BETA_BASE}/deviceAppManagement/mobileApps/${appId}/deviceStatuses`,
     { top: options?.top }
   );
 }
@@ -57,52 +61,74 @@ export async function getDeviceDetectedApps(
 
 /**
  * Get app install states for a specific managed device.
- * This shows which managed apps (assigned via Intune) are installed/pending/failed on the device.
+ * 
+ * Strategy:
+ * 1. Get the device name from the device ID
+ * 2. Iterate all managed apps and query each app's deviceStatuses
+ * 3. Match statuses by device name (deviceStatuses uses deviceName, not managedDeviceId)
+ *
+ * Note: mobileAppIntentAndStates requires delegated auth (user context), 
+ * so it doesn't work with app-only (client credentials) auth.
  */
 export async function getDeviceManagedAppStatuses(
   deviceId: string
 ): Promise<{ items: Record<string, unknown>[]; totalCount: number }> {
   const client = getGraphClient();
-  
-  // Get all managed apps, then check each for this device's install state
+
+  // Step 1: Resolve device name from device ID
+  let targetDeviceName = "";
+  try {
+    const device = await client
+      .api(`${BETA_BASE}/deviceManagement/managedDevices/${deviceId}`)
+      .select("deviceName")
+      .get();
+    targetDeviceName = String(device.deviceName || "").toLowerCase();
+  } catch {
+    return { items: [], totalCount: 0 };
+  }
+
+  if (!targetDeviceName) {
+    return { items: [], totalCount: 0 };
+  }
+
+  // Step 2: Get all apps
   const apps = await fetchWithPagination<Record<string, unknown>>(
     client,
-    "/deviceAppManagement/mobileApps",
+    `${BETA_BASE}/deviceAppManagement/mobileApps`,
     {
       select: "id,displayName,publisher",
-      maxItems: 100,
+      maxItems: 50,
     }
   );
 
+  // Step 3: Check each app's deviceStatuses and match by device name
   const deviceApps: Record<string, unknown>[] = [];
 
   for (const app of apps.items) {
     try {
       const statuses = await fetchWithPagination<Record<string, unknown>>(
         client,
-        `/deviceAppManagement/mobileApps/${app.id}/deviceStatuses`,
+        `${BETA_BASE}/deviceAppManagement/mobileApps/${app.id}/deviceStatuses`,
         { maxItems: 200 }
       );
 
-      // Find statuses for our specific device
-      const deviceStatuses = statuses.items.filter(
-        (s) => String(s.deviceId) === deviceId
-      );
-
-      if (deviceStatuses.length > 0) {
-        for (const status of deviceStatuses) {
+      for (const status of statuses.items) {
+        const statusDeviceName = String(status.deviceName || "").toLowerCase();
+        if (statusDeviceName === targetDeviceName) {
           deviceApps.push({
             appName: app.displayName,
             publisher: app.publisher,
             appId: app.id,
-            installState: status.installState ?? status.installStatus ?? "unknown",
+            installState: status.installState ?? "unknown",
             lastSyncDateTime: status.lastSyncDateTime,
             errorCode: status.errorCode,
+            userName: status.userName,
+            deviceName: status.deviceName,
           });
         }
       }
     } catch {
-      // Some app types don't support deviceStatuses — skip
+      // Some app types (e.g., managed Google Play, built-in) don't support deviceStatuses
     }
   }
 

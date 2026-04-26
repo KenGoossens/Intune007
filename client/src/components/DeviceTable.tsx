@@ -1,3 +1,6 @@
+import DeviceLink from "./DeviceLink.tsx";
+import { UserDrillLink, ComplianceStateDrillLink, TroubleshootDrillLink, TimelineDrillLink } from "./DrillLinks.tsx";
+
 interface Column {
   key: string;
   label: string;
@@ -31,6 +34,7 @@ export default function DeviceTable({ data, columns }: DeviceTableProps) {
                 {col.label}
               </th>
             ))}
+            <th className="text-left py-2 px-2 text-gray-400 font-medium whitespace-nowrap">Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -41,13 +45,26 @@ export default function DeviceTable({ data, columns }: DeviceTableProps) {
             >
               {columns.map((col) => (
                 <td key={col.key} className="py-2 px-2 text-gray-300 whitespace-nowrap">
-                  {col.key === "complianceState"
-                    ? renderComplianceBadge(String(row[col.key] ?? ""))
+                  {col.key === "deviceName" && row[col.key]
+                    ? <DeviceLink name={String(row[col.key])} className="text-xs" />
+                    : col.key === "complianceState"
+                    ? <ComplianceStateDrillLink state={String(row[col.key] ?? "")} className="text-xs" />
+                    : col.key === "userPrincipalName" && row[col.key] && String(row[col.key]).includes("@")
+                    ? <UserDrillLink upn={String(row[col.key])} className="text-xs" />
                     : col.key.includes("DateTime") || col.key.includes("Date")
                       ? formatDate(row[col.key])
                       : String(row[col.key] ?? "—")}
                 </td>
               ))}
+              {/* Action links */}
+              <td className="py-2 px-2 whitespace-nowrap">
+                {row.deviceName ? (
+                  <span className="flex items-center gap-2">
+                    <TroubleshootDrillLink deviceName={String(row.deviceName)} className="text-[10px]" />
+                    <TimelineDrillLink deviceName={String(row.deviceName)} className="text-[10px]" />
+                  </span>
+                ) : null}
+              </td>
             </tr>
           ))}
         </tbody>

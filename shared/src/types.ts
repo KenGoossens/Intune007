@@ -111,6 +111,7 @@ export const TOOL_TO_PANEL_TYPE: Record<string, DataPanelType> = {
   get_autopilot_devices: "autopilot_devices",
   get_autopilot_profiles: "autopilot_profiles",
   generate_remediation_script: "remediation_scripts",
+  deploy_remediation_script: "remediation_scripts",
   list_remediation_scripts: "remediation_scripts",
   analyze_policies: "policy_analysis",
   sync_device: "device_action",
@@ -142,6 +143,28 @@ export const TOOL_TO_PANEL_TYPE: Record<string, DataPanelType> = {
   manage_scheduled_task: "scheduled_tasks",
   list_tenants: "tenants",
   switch_tenant: "tenants",
+  generate_report: "devices",
+  get_device_risk_scores: "devices",
+  get_device_card: "device_details",
+  get_security_posture: "security_alerts",
+  get_app_health: "mobile_apps",
+  check_autopilot_readiness: "autopilot_devices",
+  onboard_autopilot_device: "autopilot_devices",
+  get_autopilot_collection_script: "autopilot_devices",
+  deploy_hash_collector: "autopilot_devices",
+  process_collected_hashes: "autopilot_devices",
+  ingest_autopilot_csv: "autopilot_devices",
+  get_device_timeline: "device_details",
+  run_compliance_forecast: "compliance_policies",
+  manage_config_baseline: "device_configurations",
+  run_troubleshooter: "device_details",
+  get_learning_stats: "agent_notes",
+  record_learning: "agent_notes",
+  fix_app_icon: "mobile_apps",
+  fix_all_missing_icons: "mobile_apps",
+  remove_app: "mobile_apps",
+  rename_app: "mobile_apps",
+  bulk_rename_apps: "mobile_apps",
 };
 
 export const TOOL_TO_PANEL_TITLE: Record<string, string> = {
@@ -150,7 +173,7 @@ export const TOOL_TO_PANEL_TITLE: Record<string, string> = {
   get_compliance_policies: "Compliance Policies",
   get_compliance_status: "Compliance Status Summary",
   get_device_configurations: "Device Configurations",
-  get_device_configuration_states: "Device Configuration States",
+  get_device_configuration_states: "Configuration Assignment Status",
   get_mobile_apps: "Mobile Apps",
   get_app_install_status: "App Install Status",
   get_device_detected_apps: "Detected Apps",
@@ -159,14 +182,15 @@ export const TOOL_TO_PANEL_TITLE: Record<string, string> = {
   get_autopilot_devices: "Autopilot Devices",
   get_autopilot_profiles: "Autopilot Deployment Profiles",
   generate_remediation_script: "Generated Remediation Script",
-  list_remediation_scripts: "Remediation Scripts",
+  deploy_remediation_script: "Deployed Remediation Script",
+  list_remediation_scripts: "Proactive Remediations",
   analyze_policies: "Policy Analysis",
-  sync_device: "Device Action — Sync",
-  restart_device: "Device Action — Restart",
-  lock_device: "Device Action — Lock",
-  reset_passcode: "Device Action — Reset Passcode",
-  retire_device: "Device Action — Retire",
-  wipe_device: "Device Action — Wipe",
+  sync_device: "Device Sync",
+  restart_device: "Device Restart",
+  lock_device: "Device Lock",
+  reset_passcode: "Passcode Reset",
+  retire_device: "Device Retire",
+  wipe_device: "Device Wipe",
   get_groups: "Azure AD Groups",
   get_group_members: "Group Members",
   create_group: "Created Group",
@@ -179,18 +203,59 @@ export const TOOL_TO_PANEL_TITLE: Record<string, string> = {
   get_directory_audit_logs: "Directory Audit Logs",
   create_compliance_policy: "Created Compliance Policy",
   assign_policy: "Policy Assignment",
-  update_conditional_access_policy: "CA Policy Update",
+  update_conditional_access_policy: "Conditional Access Policy Update",
   get_update_rings: "Windows Update Rings",
   get_update_compliance: "Update Compliance Summary",
   get_compliance_trend: "Compliance Trend",
   save_note: "Saved Note",
   recall_notes: "Recalled Notes",
-  create_scheduled_task: "Created Scheduled Task",
+  create_scheduled_task: "Scheduled Task Created",
   list_scheduled_tasks: "Scheduled Tasks",
   manage_scheduled_task: "Task Management",
   list_tenants: "Configured Tenants",
   switch_tenant: "Tenant Switch",
+  generate_report: "Generated Report",
+  get_device_risk_scores: "Device Risk Scores",
+  get_device_card: "Device Card",
+  get_security_posture: "Security Posture",
+  get_app_health: "Application Health",
+  check_autopilot_readiness: "Autopilot Readiness Check",
+  onboard_autopilot_device: "Autopilot Onboarding",
+  get_autopilot_collection_script: "Hardware Hash Collection Script",
+  deploy_hash_collector: "Hash Collector Deployment",
+  process_collected_hashes: "Collected Hardware Hashes",
+  ingest_autopilot_csv: "Autopilot CSV Import",
+  get_device_timeline: "Device Timeline",
+  run_compliance_forecast: "Compliance Forecast",
+  manage_config_baseline: "Configuration Baseline",
+  run_troubleshooter: "Device Troubleshooter",
+  get_learning_stats: "Agent Learning Stats",
+  record_learning: "Lesson Recorded",
+  fix_app_icon: "App Icon Update",
+  fix_all_missing_icons: "Missing Icons Fix",
+  remove_app: "App Removal",
+  rename_app: "App Renamed",
+  bulk_rename_apps: "Bulk App Rename",
 };
+
+/**
+ * Fallback: converts a tool name like "check_autopilot_readiness"
+ * into a clean title like "Autopilot Readiness Check".
+ * Used when a tool isn't in the TOOL_TO_PANEL_TITLE map.
+ */
+export function formatToolTitle(toolName: string): string {
+  if (TOOL_TO_PANEL_TITLE[toolName]) return TOOL_TO_PANEL_TITLE[toolName];
+
+  // Remove common prefixes
+  let cleaned = toolName
+    .replace(/^(get|list|check|run|create|manage|deploy|process|ingest|generate)_/, "");
+
+  // Convert underscores to spaces and title-case each word
+  return cleaned
+    .split("_")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
 
 // ─── Intune Entity Types (lean versions for display) ─────────────
 
@@ -208,6 +273,14 @@ export interface ManagedDeviceInfo {
   model: string;
   manufacturer: string;
   serialNumber: string;
+  // Beta fields
+  isEncrypted?: boolean;
+  joinType?: string;
+  skuFamily?: string;
+  totalStorageSpaceInBytes?: number;
+  freeStorageSpaceInBytes?: number;
+  autopilotEnrolled?: boolean;
+  azureADDeviceId?: string;
 }
 
 export interface CompliancePolicyInfo {
@@ -319,7 +392,6 @@ export interface SecurityAlertInfo {
   description: string;
   createdDateTime: string;
   lastUpdateDateTime: string;
-  serviceSources: string[];
 }
 
 export interface BitLockerKeyInfo {

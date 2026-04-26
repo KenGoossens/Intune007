@@ -15,6 +15,7 @@
  */
 
 import { getGraphClient, fetchWithPagination } from "./client.js";
+import { sanitizeOData } from "../security.js";
 
 const BETA_BASE = "https://graph.microsoft.com/beta";
 
@@ -27,7 +28,6 @@ const ALERT_SELECT_FIELDS = [
   "description",
   "createdDateTime",
   "lastUpdateDateTime",
-  "serviceSources",
 ].join(",");
 
 export interface SecurityAlertInfo {
@@ -39,7 +39,6 @@ export interface SecurityAlertInfo {
   description: string;
   createdDateTime: string;
   lastUpdateDateTime: string;
-  serviceSources: string[];
 }
 
 export interface BitLockerKeyInfo {
@@ -81,7 +80,7 @@ export async function getBitLockerKeys(options?: {
 }): Promise<{ items: BitLockerKeyInfo[]; totalCount: number }> {
   const client = getGraphClient();
   const filter = options?.deviceId
-    ? `deviceId eq '${options.deviceId}'`
+    ? `deviceId eq '${sanitizeOData(options.deviceId)}'`
     : undefined;
 
   return fetchWithPagination<BitLockerKeyInfo>(

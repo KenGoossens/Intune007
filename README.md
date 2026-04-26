@@ -1,99 +1,139 @@
-# Intune007 — AI-Powered Intune Security Copilot
+# Intune007 — License to Manage!
 
-Intune007 is a full-stack AI agent application that connects to Microsoft Intune via the Microsoft Graph API. It provides IT administrators with a conversational interface to query, manage, and secure their Intune-managed device fleet, backed by Azure OpenAI.
+**AI-powered Microsoft Intune management platform** with a conversational agent, 68 tools, 29 interactive UI panels, and full Microsoft Graph API integration.
 
 ---
 
 ## Table of Contents
 
-- [Features](#features)
+- [Overview](#overview)
 - [Architecture](#architecture)
+- [Features](#features)
 - [Prerequisites](#prerequisites)
 - [Azure Setup](#azure-setup)
-  - [1. Azure OpenAI Resource](#1-azure-openai-resource)
-  - [2. App Registration (Entra ID)](#2-app-registration-entra-id)
-  - [3. API Permissions](#3-api-permissions)
 - [Installation](#installation)
 - [Configuration](#configuration)
-- [Running the Application](#running-the-application)
+- [Running](#running)
 - [Project Structure](#project-structure)
-- [Feature Documentation](#feature-documentation)
-  - [1. Remote Device Actions](#1-remote-device-actions)
-  - [2. Group Management](#2-group-management)
-  - [3. Security & Threat Intelligence](#3-security--threat-intelligence)
-  - [4. Log Collection](#4-log-collection)
-  - [5. Policy Management](#5-policy-management)
-  - [6. Windows Update Management](#6-windows-update-management)
-  - [7. Historical Trending](#7-historical-trending)
-  - [8. Agent Memory](#8-agent-memory)
-  - [9. Scheduled Tasks](#9-scheduled-tasks)
-  - [10. Multi-Tenant Support](#10-multi-tenant-support)
-  - [11. AI Insights & Reports](#11-ai-insights--reports)
 - [Agent Tools Reference](#agent-tools-reference)
 - [API Endpoints](#api-endpoints)
-- [Alert System](#alert-system)
-- [Multi-Tenant Configuration](#multi-tenant-configuration)
+- [Security](#security)
+- [Self-Improving Agent](#self-improving-agent)
+- [Cross-Panel Interactivity](#cross-panel-interactivity)
 - [Troubleshooting](#troubleshooting)
-- [Security Considerations](#security-considerations)
 
 ---
 
-## Features
+## Overview
 
-- **Conversational AI Agent** — Natural language interface powered by Azure OpenAI with 45+ tools for Intune management
-- **Device Management** — Query, filter, and perform remote actions (sync, restart, lock, wipe, retire) on managed devices
-- **Compliance Monitoring** — Real-time compliance status, policy analysis, and health scoring
-- **Security Intelligence** — Defender alerts, BitLocker key recovery, threat summaries
-- **Log Collection** — Intune audit logs, Azure AD sign-in logs, and directory audit logs with filtering and CSV export
-- **Policy Management** — Create compliance policies, assign to groups, manage Conditional Access policies
-- **Windows Update** — Monitor update rings and update compliance across the fleet
-- **Group Management** — Query, create, and manage Azure AD / Entra ID security groups
-- **AI Insights** — Auto-generated environment reports with executive summaries, risk assessments, and recommendations
-- **Historical Trending** — SQLite-backed time-series storage for compliance and device metrics
-- **Agent Memory** — Persistent notes with full-text search so the agent remembers your tenant context
-- **Scheduled Tasks** — Recurring agent queries that run automatically (hourly, daily, weekly)
-- **Multi-Tenant** — Switch between multiple Intune tenants without restarting
-- **8 Automated Alert Checks** — Non-compliant devices, policy conflicts, stale devices, failed app installs, CA policy issues, new enrollments, high-risk devices, update compliance
+Intune007 is a full-stack application that connects to Microsoft Intune via the Microsoft Graph API. IT administrators interact through either a **conversational AI agent** (right-docked chat panel) or **29 dedicated dashboard panels** — all fully interactive and interconnected.
+
+**Key stats:**
+- 68 agent tools (device management, compliance, apps, security, Autopilot, remediation)
+- 29 UI panels with cross-panel navigation and drill-down
+- 26 API routes
+- 6 SQLite databases (analytics, history, memory, tasks, learning, baselines)
+- 116 TypeScript source files
+- OWASP-hardened security (rate limiting, input validation, OData injection prevention, prompt injection defense)
 
 ---
 
 ## Architecture
 
 ```
-┌─────────────┐     ┌───────────────────────────────────────────────┐     ┌──────────────────┐
-│   Browser   │────▶│              Server (Express)                 │────▶│ Microsoft Graph  │
-│  React +    │     │                                               │     │      API         │
-│  Vite       │     │  ┌─────────┐  ┌──────────┐  ┌─────────────┐  │     └──────────────────┘
-│             │◀────│  │  Agent  │  │ Alert    │  │  Task       │  │
-│  Panels:    │     │  │  Loop   │  │ Scheduler│  │  Scheduler  │  │     ┌──────────────────┐
-│  - Alerts   │     │  └────┬────┘  └──────────┘  └─────────────┘  │────▶│  Azure OpenAI    │
-│  - Data     │     │       │                                       │     └──────────────────┘
-│  - Logs     │     │  ┌────▼────┐  ┌──────────┐  ┌─────────────┐  │
-│  - Insights │     │  │ 45+     │  │ SQLite   │  │  Insights   │  │     ┌──────────────────┐
-│  - Tasks    │     │  │ Tools   │  │ (3 DBs)  │  │  Engine     │  │     │  SQLite (local)  │
-│  - Agent    │     │  └─────────┘  └──────────┘  └─────────────┘  │     │  - history.db    │
-└─────────────┘     └───────────────────────────────────────────────┘     │  - memory.db     │
-                                                                         │  - tasks.db      │
-                                                                         └──────────────────┘
+┌──────────────┐     ┌─────────────────────────────────────────────────┐     ┌───────────────────┐
+│   Browser    │────▶│              Server (Express + tsx)             │────▶│  Microsoft Graph  │
+│  React 18    │     │                                                 │     │  API (beta)       │
+│  Vite        │     │  ┌──────────┐  ┌───────────┐  ┌─────────────┐  │     └───────────────────┘
+│  Tailwind    │◀────│  │  Agent   │  │  Alert    │  │   Task      │  │
+│  Zustand     │     │  │  Loop    │  │ Scheduler │  │  Scheduler  │  │     ┌───────────────────┐
+│              │     │  └────┬─────┘  └───────────┘  └─────────────┘  │────▶│  Azure OpenAI     │
+│  29 Panels   │     │       │                                         │     └───────────────────┘
+│  + Agent Chat│     │  ┌────▼─────┐  ┌───────────┐  ┌─────────────┐  │
+│              │     │  │ 68 Tools │  │  SQLite   │  │  Learning   │  │     ┌───────────────────┐
+│              │     │  └──────────┘  │  (6 DBs)  │  │  Engine     │  │     │  SQLite (local)   │
+└──────────────┘     └─────────────────┴───────────┴──┴─────────────┴──┘     │  analytics.db     │
+                                                                             │  history.db       │
+    Azure Function (optional)                                                │  memory.db        │
+    ┌──────────────────────────┐                                             │  tasks.db         │
+    │ Autopilot Hash Ingestion │                                             │  learning.db      │
+    │ POST /api/autopilot/     │                                             │  baselines.db     │
+    │ ingest                   │                                             └───────────────────┘
+    └──────────────────────────┘
 ```
 
-- **Client**: React 18 + Vite + Tailwind CSS + Zustand
-- **Server**: Express + TypeScript (tsx) + Azure OpenAI SDK
-- **Shared**: TypeScript types shared between client and server (npm workspace)
-- **Data**: SQLite databases auto-created in `server/data/`
+| Layer | Stack |
+|---|---|
+| **Client** | React 18, Vite, Tailwind CSS, Zustand (with localStorage persistence) |
+| **Server** | Express, TypeScript (tsx watch), Azure OpenAI SDK, better-sqlite3 |
+| **Shared** | TypeScript types, tool title mappings (npm workspace) |
+| **AI** | Azure OpenAI (GPT-4o / GPT-5.3-chat), function calling with 68 tools |
+| **Data** | Microsoft Graph API (beta), 6 SQLite databases (auto-created) |
+| **Security** | Helmet, express-rate-limit, OData sanitization, prompt injection defense, PowerShell script scanning |
+| **Optional** | Azure Functions for Autopilot hardware hash ingestion from bare-metal devices |
+
+---
+
+## Features
+
+### Core
+
+| Panel | Description |
+|---|---|
+| **Alerts** | 8 automated health checks: non-compliant devices, policy conflicts, stale devices, failed app installs, CA policy issues, new enrollments, high-risk devices, update compliance. Configurable intervals. |
+| **Data** | Query results from the agent render as interactive data cards. Device names → Device Card, policies → Policy view, UPNs → user device lookup, compliance states → Security Posture. Each card individually dismissible. |
+| **Device Card** | Rich 50+ field device card with action bar (Sync, Restart, Troubleshoot, Timeline, Prepare Autopilot), drill-down into apps/profiles/compliance, hardware/network/security/enrollment sections. |
+| **Query Builder** | Natural language → OData filter translation. Auto-executes when navigated to with a query. |
+| **Report Generator** | AI-generated comprehensive reports from 15+ data sources with executive summary, risk assessment, and recommendations. |
+
+### Operations
+
+| Panel | Description |
+|---|---|
+| **Policies** | Policy Analyzer with health score (0-100), clickable severity filtering (Critical/Warning/Info/Good), affected items drill-down, action buttons (Remediate, Build Policy, Troubleshoot, View Posture). Stats link to their respective panels. |
+| **Policy Builder** | Describe a policy in plain English → AI generates valid Intune policy JSON with 8 security benchmark overlays (CIS L1/L2, NIST, ISO 27001, HIPAA, Essential Eight, Zero Trust, STIG). Deploy to Intune with one click. |
+| **Policy Diff** | Compare two policy configurations side-by-side. |
+| **Remediation** | AI-generated PowerShell Proactive Remediation scripts (detection + remediation). Quick templates for common fixes. Deploy to Intune directly. Scripts scanned for 15 dangerous patterns before deployment. |
+| **Troubleshooter** | 7-step automated diagnostic with SSE streaming: resolve device → compliance → config profiles → app installs → group membership → sync status → AI root cause analysis. Auto-executes when navigated to with a device name. |
+| **Logs** | Intune audit logs, Azure AD sign-in logs, directory audit logs with filtering and export. |
+
+### Insights
+
+| Panel | Description |
+|---|---|
+| **Insights** | AI-generated environment summary and recommendations. |
+| **Risk Scores** | Fleet-wide device risk scoring (0-100) based on compliance, sync age, encryption, OS version, config conflicts. |
+| **Compliance Forecast** | Predict compliance impact of new policy requirements before deploying. |
+| **Security Posture** | Overall security score with compliance rate, encryption rate, stale device rate. Trend charts, device breakdowns with clickable device names, Troubleshoot and Timeline links per device. |
+| **App Health** | App deployment health with real app icons from Intune, detection rates, per-device version tracking. Inline actions: delete app (assignments removed first), find/refresh icon (7-source search with SSE progress + PNG conversion + upload to Intune), filter by All/Detected/Not Detected. |
+| **Autopilot Readiness** | Check readiness by serial number, auto-remediate (group tag, profile assignment), full onboarding pipeline (hash import → processing → group tag → group membership → profile verification). Three collection methods: Azure Function for bare-metal, Proactive Remediation for enrolled devices, CSV import. |
+| **Config Baselines** | Snapshot current configuration state, compare against baselines, detect drift. |
+| **Device Timeline** | Full lifecycle timeline: enrollment, compliance changes, config assignments, sync events. Auto-executes when navigated to with a device name. |
+| **Tasks** | Recurring scheduled agent queries (hourly, daily, weekly). |
+| **Analytics** | Persistent (SQLite-backed) request analytics: token usage, costs, response times, tool usage breakdown, error rates. Survives server restarts. |
+
+### AI Agent
+
+| Capability | Details |
+|---|---|
+| **68 Function-calling tools** | Full Intune management: devices, apps, policies, groups, security, Autopilot, remediation, reporting |
+| **Self-improving** | Learning engine with few-shot exemplars, tool chain pattern learning, correction memory, user feedback (👍/👎) |
+| **Tool name confidentiality** | Agent describes capabilities in plain language, never exposes internal function names to users |
+| **Safety guardrails** | Destructive actions require user confirmation; PowerShell scripts scanned before deployment; input validation on all tool arguments |
+| **Cross-panel navigation** | Clicking data elements triggers panel switches with auto-execution |
+| **App management** | Search/fix/refresh app icons (7 sources with PNG conversion via sharp), remove apps (assignments cleared first), bulk rename apps (find-and-replace across all app names) |
+| **Sync-then-reboot** | Restart command sends a sync first so the device picks up the reboot immediately |
 
 ---
 
 ## Prerequisites
 
-| Requirement | Version | Notes |
-|---|---|---|
-| **Node.js** | 18.x or higher | Tested on v24.9.0. Download from [nodejs.org](https://nodejs.org/) |
-| **npm** | 9.x or higher | Comes with Node.js |
-| **Azure Subscription** | — | Required for Azure OpenAI and Entra ID |
-| **Azure OpenAI Resource** | — | With a GPT-4o or newer model deployed |
-| **Entra ID App Registration** | — | With Microsoft Graph API permissions |
-| **Microsoft Intune** | — | Active Intune tenant with managed devices |
+| Requirement | Version |
+|---|---|
+| Node.js | 18.x+ (tested on v24.9.0) |
+| npm | 9.x+ |
+| Azure Subscription | For Azure OpenAI + Entra ID |
+| Azure OpenAI | GPT-4o or newer deployment |
 
 ---
 
@@ -101,138 +141,85 @@ Intune007 is a full-stack AI agent application that connects to Microsoft Intune
 
 ### 1. Azure OpenAI Resource
 
-1. Go to [Azure Portal](https://portal.azure.com/) → **Azure OpenAI** → Create a resource
-2. Deploy a model (e.g., `gpt-4o` or newer) and note the:
-   - **Endpoint** (e.g., `https://your-resource.openai.azure.com/`)
-   - **API Key** (from Keys and Endpoint)
-   - **Deployment name** (the name you gave the model deployment)
+1. Create an Azure OpenAI resource in the Azure portal
+2. Deploy a model (e.g., `gpt-4o` or `gpt-5.3-chat`)
+3. Note the **endpoint**, **API key**, and **deployment name**
 
 ### 2. App Registration (Entra ID)
 
-1. Go to **Entra ID** → **App registrations** → **New registration**
-2. Name: `Intune007` (or your choice)
-3. Supported account types: **Single tenant** (or multi-tenant if using multi-tenant feature)
-4. Click **Register**
-5. Note the:
-   - **Application (client) ID**
-   - **Directory (tenant) ID**
-6. Go to **Certificates & secrets** → **New client secret**
-   - Add a description, set expiry, click **Add**
-   - **Copy the secret value immediately** (you can't see it again)
+1. Go to **Azure Portal → Microsoft Entra ID → App registrations → New registration**
+2. Name: `Intune007`
+3. Supported account types: **Single tenant**
+4. Create a **client secret** (Certificates & secrets → New client secret)
 
 ### 3. API Permissions
 
-Go to **API permissions** → **Add a permission** → **Microsoft Graph** → **Application permissions**.
+Add these **Application** permissions and grant admin consent:
 
-#### Minimum permissions (read-only mode — 9 permissions):
-
-| Permission | Purpose |
-|---|---|
-| `DeviceManagementManagedDevices.Read.All` | List/query devices, compliance state, detected apps |
-| `DeviceManagementConfiguration.Read.All` | Compliance policies, config profiles, update rings |
-| `DeviceManagementApps.Read.All` | Mobile apps, app install status |
-| `DeviceManagementServiceConfig.Read.All` | Autopilot devices/profiles, Intune audit events |
-| `DeviceManagementRBAC.Read.All` | Proactive remediation scripts |
-| `Policy.Read.All` | Conditional Access policies |
-| `Group.Read.All` | Azure AD groups and members |
-| `SecurityEvents.Read.All` | Defender security alerts |
-| `AuditLog.Read.All` | Sign-in logs, directory audit logs |
-
-#### Full permissions (all features — 16 permissions):
-
-Add the above 9, plus:
-
-| Permission | Purpose |
-|---|---|
-| `DeviceManagementManagedDevices.ReadWrite.All` | Sync, restart, lock, reset passcode |
-| `DeviceManagementManagedDevices.PrivilegedOperations.All` | Retire and wipe devices |
-| `DeviceManagementConfiguration.ReadWrite.All` | Create compliance policies, config profiles |
-| `DeviceManagementRBAC.ReadWrite.All` | Deploy proactive remediation scripts |
-| `Policy.ReadWrite.ConditionalAccess` | Enable/disable CA policies |
-| `Group.ReadWrite.All` | Create groups, add members |
-| `BitlockerKey.Read.All` | BitLocker recovery key lookup |
-
-After adding permissions, click **Grant admin consent for [your tenant]**.
+| Permission | Type | For |
+|---|---|---|
+| `DeviceManagementManagedDevices.ReadWrite.All` | Application | Devices, actions, diagnostics |
+| `DeviceManagementConfiguration.ReadWrite.All` | Application | Policies, profiles, baselines |
+| `DeviceManagementApps.ReadWrite.All` | Application | Apps, icons, assignments |
+| `DeviceManagementServiceConfig.ReadWrite.All` | Application | Autopilot, enrollment |
+| `DeviceManagementRBAC.Read.All` | Application | Role-based access |
+| `Directory.Read.All` | Application | Groups, users, devices |
+| `Group.ReadWrite.All` | Application | Group management |
+| `AuditLog.Read.All` | Application | Sign-in and audit logs |
+| `SecurityEvents.Read.All` | Application | Security alerts |
+| `BitlockerKey.Read.All` | Application | BitLocker recovery keys |
+| `Policy.Read.All` | Application | Conditional Access |
+| `Policy.ReadWrite.ConditionalAccess` | Application | CA policy updates |
 
 ---
 
 ## Installation
 
 ```bash
-# Clone the repository
-git clone <your-repo-url>
+git clone https://github.com/KenGoossens/Intune007.git
 cd Intune007
-
-# Install all dependencies (root, shared, server, client)
 npm install
-
-# Build the shared types package
-npm -w shared run build
 ```
+
+This installs all three workspaces (client, server, shared) via npm workspaces.
 
 ---
 
 ## Configuration
 
-Create the server environment file:
-
-```bash
-cp server/.env.example server/.env
-```
-
-Or create `server/.env` manually with these values:
+Create `server/.env`:
 
 ```env
-# ─── Azure OpenAI ─────────────────────────────────────────────────
-AZURE_OPENAI_API_KEY=your-azure-openai-api-key
-AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com/
-AZURE_OPENAI_DEPLOYMENT=your-model-deployment-name
+# Azure OpenAI
+AZURE_OPENAI_API_KEY=your-api-key
+AZURE_OPENAI_ENDPOINT=https://your-resource.openai.azure.com
+AZURE_OPENAI_DEPLOYMENT=gpt-4o
 AZURE_OPENAI_API_VERSION=2024-10-01-preview
 
-# ─── Azure AD / Microsoft Graph ──────────────────────────────────
+# Azure AD / Microsoft Graph
 AZURE_TENANT_ID=your-tenant-id
-AZURE_CLIENT_ID=your-app-client-id
+AZURE_CLIENT_ID=your-client-id
 AZURE_CLIENT_SECRET=your-client-secret
 
-# ─── Server ──────────────────────────────────────────────────────
+# Optional
+CORS_ORIGIN=http://localhost:5173
 PORT=3001
-
-# ─── Multi-Tenant (optional) ────────────────────────────────────
-# AZURE_TENANTS=[{"tenantId":"...","clientId":"...","clientSecret":"...","label":"Second Tenant"}]
 ```
 
 ---
 
-## Running the Application
-
-### Development (recommended)
-
-Start server and client separately for best reliability:
+## Running
 
 ```bash
 # Terminal 1: Start the server
-npm -w server run dev
+cd server && npx tsx watch src/index.ts
 
 # Terminal 2: Start the client
-npm -w client run dev
+cd client && npx vite
 ```
 
-Or start both together:
-
-```bash
-npm run dev
-```
-
-The application will be available at:
-- **Client**: http://localhost:5173
 - **Server**: http://localhost:3001
-
-### Production Build
-
-```bash
-npm run build
-npm -w server run start
-```
+- **Client**: http://localhost:5173
 
 ---
 
@@ -240,359 +227,176 @@ npm -w server run start
 
 ```
 Intune007/
-├── package.json                 # Root workspace config
-├── tsconfig.base.json           # Shared TypeScript config
-├── client/                      # React frontend (Vite)
-│   ├── src/
-│   │   ├── App.tsx              # Main layout (nav + panels + agent)
-│   │   ├── components/
-│   │   │   ├── ChatPanel.tsx    # AI agent chat interface
-│   │   │   ├── AlertsPanel.tsx  # Alert monitoring dashboard
-│   │   │   ├── DataPanel.tsx    # Query result tables
-│   │   │   ├── LogViewerPanel.tsx    # Audit & sign-in log viewer
-│   │   │   ├── TasksPanel.tsx        # Scheduled task management
-│   │   │   ├── InsightsPanel.tsx     # AI insights & reports
-│   │   │   ├── RemediationPanel.tsx  # Script generation & deployment
-│   │   │   ├── AnalyticsPanel.tsx    # Token usage & cost analytics
-│   │   │   ├── PolicyAnalyzerPanel.tsx # Policy health analysis
-│   │   │   ├── DeviceTable.tsx       # Device data table
-│   │   │   ├── GenericTable.tsx      # Dynamic data table
-│   │   │   └── ComplianceStatusCard.tsx
-│   │   ├── hooks/
-│   │   │   └── useAgentStream.ts     # Chat API communication
-│   │   └── stores/                   # Zustand state management
-│   │       ├── chatStore.ts
-│   │       ├── alertStore.ts
-│   │       └── ...
-│   └── vite.config.ts           # Vite config with API proxy
-├── server/                      # Express backend
-│   ├── .env                     # Environment configuration
-│   ├── data/                    # Auto-created SQLite databases
-│   │   ├── history.db           # Historical metrics
-│   │   ├── memory.db            # Agent memory notes
-│   │   └── tasks.db             # Scheduled tasks
+├── package.json                    # Root workspace config
+├── README.md
+├── azure-functions/                # Optional: Autopilot hash ingestion
+│   └── src/functions/ingestHardwareHash.ts
+├── client/                         # React frontend
 │   └── src/
-│       ├── index.ts             # Server entry point
-│       ├── config.ts            # Environment config loader
+│       ├── App.tsx                 # Layout: left nav + panels + right-docked agent
+│       ├── components/             # 29 UI panel components
+│       │   ├── ChatPanel.tsx       # AI agent chat with thumbs up/down feedback
+│       │   ├── DataPanel.tsx       # Interactive query result cards
+│       │   ├── DeviceCardPanel.tsx # Rich device card with action bar
+│       │   ├── DrillLinks.tsx      # 8 reusable cross-panel navigation links
+│       │   ├── GenericTable.tsx    # Smart table: auto-detects clickable data types
+│       │   └── ...27 more panels
+│       ├── hooks/useAgentStream.ts
+│       └── stores/                 # Zustand state (chatStore, navigationStore, ...)
+├── server/                         # Express backend
+│   └── src/
+│       ├── index.ts                # Entry (helmet, rate limiting, CORS, routes)
+│       ├── security.ts             # OWASP security: sanitization, validation, scanning
 │       ├── agent/
-│       │   ├── agent.ts         # AI agent loop (Azure OpenAI)
-│       │   ├── tools.ts         # 45+ tool definitions
-│       │   ├── executor.ts      # Tool dispatch & execution
-│       │   └── memory.ts        # Agent memory (SQLite + FTS5)
-│       ├── graph/               # Microsoft Graph API modules
-│       │   ├── client.ts        # Graph client + pagination helper
-│       │   ├── devices.ts       # Device queries
-│       │   ├── deviceActions.ts # Remote device actions
-│       │   ├── compliance.ts    # Compliance policies & status
-│       │   ├── configurations.ts # Config profiles
-│       │   ├── apps.ts          # Mobile apps
-│       │   ├── conditionalAccess.ts # CA policies
-│       │   ├── autopilot.ts     # Autopilot devices & profiles
-│       │   ├── remediation.ts   # Proactive remediations
-│       │   ├── groups.ts        # Azure AD groups
-│       │   ├── security.ts      # Defender alerts, BitLocker
-│       │   ├── logs.ts          # Audit & sign-in logs
-│       │   ├── policyManagement.ts # Policy CRUD operations
-│       │   ├── windowsUpdate.ts # Update rings & compliance
-│       │   └── tenantManager.ts # Multi-tenant client manager
-│       ├── alerts/
-│       │   ├── checks.ts        # 8 alert check functions
-│       │   └── scheduler.ts     # Alert check scheduler
-│       ├── analytics/
-│       │   ├── tracker.ts       # Token & cost tracking
-│       │   └── history.ts       # Historical metrics (SQLite)
-│       ├── insights/
-│       │   └── engine.ts        # AI insights report generator
-│       ├── remediation/
-│       │   ├── scriptGenerator.ts # AI script generation
-│       │   └── deployer.ts      # Intune deployment
-│       ├── policyAnalyzer/
-│       │   └── analyzer.ts      # Policy health scoring
-│       ├── scheduler/
-│       │   ├── taskStore.ts     # Task CRUD (SQLite)
-│       │   └── taskScheduler.ts # Task execution runner
-│       └── routes/
-│           ├── chat.ts          # POST /api/chat
-│           ├── alerts.ts        # Alert CRUD endpoints
-│           ├── remediation.ts   # Script generation endpoints
-│           ├── analytics.ts     # Analytics endpoints
-│           ├── policyAnalyzer.ts # Policy analysis endpoints
-│           ├── logs.ts          # Log query endpoints
-│           ├── tasks.ts         # Scheduled task endpoints
-│           ├── reports.ts       # Trend report endpoints
-│           └── insights.ts      # AI insights endpoints
-└── shared/                      # Shared TypeScript types
-    └── src/
-        ├── index.ts
-        └── types.ts             # All shared interfaces & constants
+│       │   ├── agent.ts            # Agent loop with tool name confidentiality
+│       │   ├── executor.ts         # 68 tool dispatcher
+│       │   ├── tools.ts            # Tool definitions
+│       │   ├── memory.ts           # Persistent agent memory (SQLite)
+│       │   └── learningEngine.ts   # Self-improving learning loop (SQLite)
+│       ├── graph/                  # 18 Microsoft Graph API modules
+│       │   ├── appIcons.ts         # Icon search (7 sources) + sharp PNG conversion
+│       │   ├── appManagement.ts    # Remove, rename, bulk rename apps
+│       │   └── ...16 more modules
+│       ├── autopilot/              # Onboarding, remediation, hash collection
+│       ├── routes/                 # 26 Express API routes
+│       └── ...engines (analytics, alerts, forecast, baselines, troubleshooter, etc.)
+└── shared/                         # Shared TypeScript types + tool title maps
 ```
 
 ---
 
-## Feature Documentation
+## Agent Tools Reference (68 tools)
 
-### 1. Remote Device Actions
+### Devices (6)
+Managed devices, device details, device card (50+ fields), device timeline, threat summary, risk scores
 
-Perform remote management operations on Intune-managed devices through the chat agent.
+### Device Actions (6)
+Sync (forces check-in), restart (sync-then-reboot), lock, reset passcode, retire, wipe
 
-| Action | Chat Command Example | Graph API | Risk Level |
-|---|---|---|---|
-| Sync | "Sync device NB-LAPTOP-01" | `POST .../syncDevice` | Low |
-| Restart | "Restart device NB-LAPTOP-01" | `POST .../rebootNow` | Medium |
-| Lock | "Lock device NB-LAPTOP-01" | `POST .../remoteLock` | Medium |
-| Reset Passcode | "Reset passcode for NB-LAPTOP-01" | `POST .../resetPasscode` | Medium |
-| Retire | "Retire device NB-LAPTOP-01" | `POST .../retire` | **High** |
-| Wipe | "Wipe device NB-LAPTOP-01" | `POST .../wipe` | **Critical** |
+### Applications (10)
+Mobile apps, install status, detected apps, managed app states, app health, fix/refresh icon (7-source search + PNG conversion), fix all missing icons, remove app (assignments first), rename app, bulk rename apps
 
-**Safety:** The agent is instructed to always confirm with the user before executing retire or wipe actions.
+### Compliance (6)
+Compliance policies, create policy, assign policy, compliance status, compliance trend, compliance forecast
+
+### Configuration (3)
+Device configurations, configuration states, manage config baselines
+
+### Conditional Access (2)
+View CA policies, update CA policies
+
+### Autopilot (8)
+Autopilot devices, profiles, readiness check, onboard device, collection script, deploy hash collector, process collected hashes, ingest CSV
+
+### Security (3)
+Security alerts, BitLocker keys, security posture
+
+### Groups (4)
+List groups, group members, create group, add member
+
+### Logs (3)
+Audit logs, sign-in logs, directory audit logs
+
+### Remediation (4)
+Generate remediation script, deploy script, list scripts, analyze policies
+
+### Updates (2)
+Update rings, update compliance
+
+### Memory & Learning (4)
+Save note, recall notes, learning stats, record learning
+
+### Tasks (3)
+Create task, list tasks, manage task
+
+### Multi-Tenant (2)
+List tenants, switch tenant
+
+### Reporting (2)
+Generate report, run troubleshooter
 
 ---
 
-### 2. Group Management
+## API Endpoints (26 routes)
 
-Query and manage Azure AD / Entra ID groups.
-
-| Action | Chat Command Example |
-|---|---|
-| List groups | "List all security groups" |
-| Search groups | "Find groups with 'Marketing' in the name" |
-| Group members | "Show members of the IT Admins group" |
-| Create group | "Create a security group called 'Pilot Devices'" |
-| Add member | "Add device NB-01 to the Pilot Devices group" |
-
----
-
-### 3. Security & Threat Intelligence
-
-| Action | Chat Command Example |
-|---|---|
-| Security alerts | "Show recent high severity security alerts" |
-| BitLocker keys | "Find BitLocker recovery key for device X" |
-| Threat summary | "Show device threat summary" |
-
----
-
-### 4. Log Collection
-
-Available in the **Logs** tab (left navigation) and via chat.
-
-| Log Type | Source | Graph API Endpoint |
+| Method | Path | Description |
 |---|---|---|
-| Intune Audit | Intune admin actions | `/deviceManagement/auditEvents` |
-| Sign-In Logs | User/device sign-ins | `/auditLogs/signIns` |
-| Directory Audit | Tenant-level admin actions | `/auditLogs/directoryAudits` |
-
-Features: Filter text search, row expansion with full JSON, CSV export, configurable row count.
+| POST | `/api/chat` | Send message to AI agent (rate limited: 20/min) |
+| GET | `/api/alerts` | Active alerts |
+| POST | `/api/alerts/refresh` | Force alert refresh |
+| GET | `/api/analytics` | Analytics summary (SQLite-backed) |
+| GET | `/api/app-health` | App deployment health with icons |
+| POST | `/api/app-health/fix-icon` | SSE streaming icon search + upload |
+| DELETE | `/api/app-health/:appId` | Remove app from Intune |
+| POST | `/api/autopilot-readiness/check` | Autopilot readiness check |
+| POST | `/api/autopilot-readiness/onboard` | Full onboarding pipeline |
+| POST | `/api/autopilot-readiness/deploy-collector` | Deploy hash collector |
+| POST | `/api/autopilot-readiness/ingest-csv` | CSV bulk import |
+| GET | `/api/baselines` | Configuration baselines |
+| GET | `/api/device-card/:deviceId` | Rich device card |
+| POST | `/api/device-timeline` | Device lifecycle timeline |
+| POST | `/api/forecast` | Compliance forecast |
+| GET | `/api/insights` | AI insights |
+| POST | `/api/learning/feedback` | Thumbs up/down feedback |
+| GET | `/api/learning/stats` | Learning statistics |
+| GET | `/api/logs` | Audit logs |
+| POST | `/api/policy-builder/generate` | Generate policy from description |
+| POST | `/api/policy-builder/deploy` | Deploy generated policy |
+| GET | `/api/policy-analyzer` | Policy health analysis |
+| POST | `/api/query-builder` | Natural language → OData |
+| POST | `/api/remediation/generate` | Generate remediation scripts |
+| GET | `/api/risk-scores` | Fleet risk scores |
+| GET | `/api/security-posture` | Security posture dashboard |
+| POST | `/api/troubleshooter/diagnose` | SSE streaming diagnostics |
 
 ---
 
-### 5. Policy Management
+## Security
 
-| Action | Chat Command Example |
+| Protection | Implementation |
 |---|---|
-| Create compliance policy | "Create a Windows 10 compliance policy requiring BitLocker" |
-| Assign policy | "Assign policy X to the Marketing group" |
-| Enable CA policy | "Enable Conditional Access policy 'Require MFA'" |
-| Disable CA policy | "Disable the 'Block Legacy Auth' CA policy" |
-
-**Safety:** The agent confirms all write operations before executing.
+| **Security Headers** | Helmet (CSP, X-Frame-Options, HSTS, X-Content-Type-Options) |
+| **Rate Limiting** | 60 req/min API, 20 req/min chat |
+| **Input Validation** | Message max 10K chars, history max 50 messages |
+| **OData Injection** | `sanitizeOData()` on all Graph API filter strings |
+| **Prompt Injection** | `sanitizeForSystemPrompt()` strips injection patterns from memory context |
+| **Tool Validation** | UUID format, serial number, UPN, string length checks |
+| **PowerShell Scanning** | 15 dangerous patterns blocked before deployment |
+| **Error Sanitization** | Paths, tokens, connection strings stripped from responses |
+| **Destructive Actions** | `wipe_device`, `retire_device`, `remove_app`, `bulk_rename_apps`, `deploy_remediation_script` require confirmation |
+| **SQL Injection** | All SQLite queries use parameterized statements |
 
 ---
 
-### 6. Windows Update Management
+## Self-Improving Agent
 
-| Action | Chat Command Example |
+The Learning Engine (`server/src/agent/learningEngine.ts`) makes the agent smarter over time:
+
+| Mechanism | How it works |
 |---|---|
-| List update rings | "Show Windows Update rings" |
-| Update compliance | "How many devices are behind on updates?" |
+| **Interaction logging** | Every query → tool chain → response stored in `learning.db` |
+| **Feedback** | 👍/👎 buttons on every agent response |
+| **Few-shot exemplars** | Thumbs-up interactions become system prompt examples (max 30) |
+| **Tool chain patterns** | Tracks best tool sequences per intent category |
+| **Corrections** | Records lessons from mistakes — injected as "avoid" patterns |
+| **Intent detection** | 12-category keyword classifier for pattern matching |
 
 ---
 
-### 7. Historical Trending
+## Cross-Panel Interactivity
 
-Metrics are automatically recorded by the alert scheduler after each check cycle. Data is stored in `server/data/history.db`.
+Every data element is clickable and connected:
 
-| Chat Command Example |
-|---|
-| "Show compliance trend for the last 30 days" |
-| "What metrics are being tracked?" |
-
-Recorded metrics: `total_alerts`, `alert_non_compliant_devices`, `alert_stale_devices`, etc.
-
----
-
-### 8. Agent Memory
-
-The agent can save and recall notes that persist across conversations. Stored in `server/data/memory.db` with full-text search (FTS5).
-
-| Action | Chat Command Example |
+| Data Element | Click Action |
 |---|---|
-| Save a note | "Remember that the Finance team uses the 'Finance-Compliance' policy" |
-| Recall notes | "What do you know about the Finance team?" |
-
-Saved notes are automatically injected into the agent's context for every conversation.
-
----
-
-### 9. Scheduled Tasks
-
-Create recurring agent jobs via the **Tasks** tab or chat. Tasks are stored in `server/data/tasks.db` and executed by the task scheduler.
-
-| Action | How |
-|---|---|
-| Create via UI | Tasks tab → New Task → set name, prompt, schedule |
-| Create via chat | "Schedule a daily task to check non-compliant devices" |
-| View tasks | Tasks tab shows all tasks with status and last run |
-| View history | Click a task to see recent execution results |
-| Enable/disable | Toggle button in the Tasks tab |
-
-Schedules: Hourly (60 min), Daily (1440 min), Weekly (10080 min).
-
----
-
-### 10. Multi-Tenant Support
-
-Switch between multiple Intune tenants without restarting the server.
-
-**Setup:** Add the `AZURE_TENANTS` environment variable to `server/.env`:
-
-```env
-AZURE_TENANTS=[{"tenantId":"<id>","clientId":"<id>","clientSecret":"<secret>","label":"Contoso"}]
-```
-
-| Chat Command | Description |
-|---|---|
-| "List my tenants" | Shows all configured tenants and which is active |
-| "Switch to Contoso" | Changes the active Graph client to the Contoso tenant |
-
-Each tenant needs its own app registration (or a multi-tenant app) with the required permissions.
-
----
-
-### 11. AI Insights & Reports
-
-Available in the **Insights** tab. Generates a comprehensive environment report by:
-
-1. Pulling live data from 7 Graph API sources in parallel
-2. Computing compliance rate, stale device rate, update compliance, OS distribution
-3. Running rule-based analysis (critical/warning/good/info insights)
-4. Generating an AI executive summary via Azure OpenAI
-
-Features:
-- 4 health score cards (compliance, stale, updates, total devices)
-- AI-generated executive summary
-- Insights grouped by severity
-- Environment breakdown (policies, profiles, apps)
-- OS distribution bar chart
-- Text report export
-- 2-minute server-side cache
-
----
-
-## Agent Tools Reference
-
-The agent has **45+ tools** organized by category:
-
-| Category | Tools | Count |
-|---|---|---|
-| **Devices** | `get_managed_devices`, `get_device_details`, `get_device_configuration_states`, `get_device_detected_apps`, `get_device_app_install_states` | 5 |
-| **Device Actions** | `sync_device`, `restart_device`, `lock_device`, `reset_passcode`, `retire_device`, `wipe_device` | 6 |
-| **Compliance** | `get_compliance_policies`, `get_compliance_status` | 2 |
-| **Configuration** | `get_device_configurations` | 1 |
-| **Apps** | `get_mobile_apps`, `get_app_install_status` | 2 |
-| **Conditional Access** | `get_conditional_access_policies` | 1 |
-| **Autopilot** | `get_autopilot_devices`, `get_autopilot_profiles` | 2 |
-| **Groups** | `get_groups`, `get_group_members`, `create_group`, `add_group_member` | 4 |
-| **Security** | `get_security_alerts`, `get_bitlocker_keys`, `get_device_threat_summary` | 3 |
-| **Logs** | `get_audit_logs`, `get_sign_in_logs`, `get_directory_audit_logs` | 3 |
-| **Policy Management** | `create_compliance_policy`, `assign_policy`, `update_conditional_access_policy` | 3 |
-| **Windows Update** | `get_update_rings`, `get_update_compliance` | 2 |
-| **Remediation** | `generate_remediation_script`, `deploy_remediation_script`, `list_remediation_scripts` | 3 |
-| **Policy Analysis** | `analyze_policies` | 1 |
-| **Trending** | `get_compliance_trend` | 1 |
-| **Memory** | `save_note`, `recall_notes` | 2 |
-| **Tasks** | `create_scheduled_task`, `list_scheduled_tasks`, `manage_scheduled_task` | 3 |
-| **Multi-Tenant** | `list_tenants`, `switch_tenant` | 2 |
-
----
-
-## API Endpoints
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `POST` | `/api/chat` | Send a message to the AI agent |
-| `GET` | `/api/alerts` | Get all alerts, configs, and last run times |
-| `POST` | `/api/alerts/refresh` | Trigger all alert checks |
-| `POST` | `/api/alerts/refresh/:type` | Trigger a specific alert check |
-| `PATCH` | `/api/alerts/config/:type` | Update alert check config |
-| `POST` | `/api/alerts/:id/acknowledge` | Acknowledge an alert |
-| `DELETE` | `/api/alerts/:id` | Dismiss an alert |
-| `GET` | `/api/logs/audit` | Intune audit events |
-| `GET` | `/api/logs/signins` | Azure AD sign-in logs |
-| `GET` | `/api/logs/directory` | Directory audit logs |
-| `GET` | `/api/tasks` | List scheduled tasks |
-| `POST` | `/api/tasks` | Create a scheduled task |
-| `PATCH` | `/api/tasks/:id` | Update a task |
-| `DELETE` | `/api/tasks/:id` | Delete a task |
-| `GET` | `/api/tasks/:id/executions` | Get task execution history |
-| `GET` | `/api/insights` | Generate AI insights report (cached) |
-| `POST` | `/api/insights/refresh` | Force regenerate insights |
-| `GET` | `/api/insights/trends` | Get all metric trends |
-| `GET` | `/api/reports/trend/:metric` | Get daily trend for a metric |
-| `GET` | `/api/reports/metrics` | List available metric names |
-| `GET` | `/api/analytics` | Get analytics summary |
-| `DELETE` | `/api/analytics` | Clear analytics data |
-| `GET` | `/api/policy-analyzer` | Run policy analysis (cached) |
-| `POST` | `/api/policy-analyzer/refresh` | Force re-analyze policies |
-| `GET` | `/api/health` | Health check |
-
----
-
-## Alert System
-
-8 automated checks run on configurable intervals:
-
-| Alert Type | Default Interval | Severity Logic |
-|---|---|---|
-| Non-Compliant Devices | 15 min | ≥5 = critical, else warning |
-| Policy Conflicts | 30 min | Always critical |
-| Stale Devices (7+ days) | 60 min | ≥10 = warning, else info |
-| Failed App Installs | 30 min | ≥10 = critical, else warning |
-| CA Policy Issues | 60 min | Info |
-| New Enrollments | 15 min | Info |
-| High Risk Devices | 30 min | Any critical alert = critical |
-| Update Compliance | 60 min | ≥10 = warning, else info |
-
-Alerts can be configured (enable/disable, change interval) via the Alerts panel settings gear icon.
-
----
-
-## Multi-Tenant Configuration
-
-To manage multiple Intune tenants:
-
-1. Register an app in each tenant (or use a multi-tenant app registration)
-2. Grant the required Graph API permissions in each tenant
-3. Add the `AZURE_TENANTS` env var to `server/.env`:
-
-```env
-AZURE_TENANTS=[
-  {
-    "tenantId": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
-    "clientId": "ffffffff-gggg-hhhh-iiii-jjjjjjjjjjjj",
-    "clientSecret": "your-secret-here",
-    "label": "Contoso Production"
-  },
-  {
-    "tenantId": "11111111-2222-3333-4444-555555555555",
-    "clientId": "66666666-7777-8888-9999-000000000000",
-    "clientSecret": "another-secret",
-    "label": "Fabrikam Test"
-  }
-]
-```
-
-The primary tenant from `AZURE_TENANT_ID` is always available. Use `"List my tenants"` and `"Switch to Contoso Production"` in the chat.
+| Device name | → Device Card |
+| User UPN | → Query Builder (find devices) |
+| Compliance state | → Security Posture |
+| Policy name | → Agent searches for the policy |
+| App name | → App Health |
+| Group name | → Query Builder (group members) |
+| Troubleshoot | → Troubleshooter (auto-executes) |
+| Timeline | → Timeline (auto-loads) |
 
 ---
 
@@ -600,25 +404,20 @@ The primary tenant from `AZURE_TENANT_ID` is always available. Use `"List my ten
 
 | Issue | Solution |
 |---|---|
-| **Server won't start** | Check `server/.env` exists and has all required values |
-| **500 errors on API calls** | Verify Graph API permissions are granted with admin consent |
-| **"EADDRINUSE" error** | Another process is using port 3001. Kill it or change `PORT` in `.env` |
-| **Shared package errors** | Run `npm -w shared run build` before starting |
-| **Stale shared build** | Delete `shared/tsconfig.tsbuildinfo` then rebuild: `npm -w shared run build` |
-| **Client can't reach server** | Start the server first, then the client. Check Vite proxy in `client/vite.config.ts` |
-| **Agent responds in wrong language** | The agent follows the user's language. Ask in English for English responses |
-| **SQLite errors** | Delete the `server/data/` folder and restart — databases are auto-recreated |
-| **BitLocker keys not showing** | Ensure `BitlockerKey.Read.All` permission is granted |
-| **Device actions fail** | Ensure `DeviceManagementManagedDevices.ReadWrite.All` and `PrivilegedOperations.All` are granted |
+| `temperature` not supported | Some models (gpt-5.3-chat) don't support it — remove from config |
+| `max_tokens` error | Use `max_completion_tokens` instead |
+| App install status returns 0 | `deviceStatuses` is deprecated — uses `detectedApps` |
+| Graph API 403 errors | Add all required permissions AND grant admin consent |
+| Battery showing wrong % | Stale snapshot from last check-in — hidden when charge cycles = 0 |
+| Icon upload "invalid format" | Icons are auto-converted to PNG via sharp — check sharp installation |
+| Device restart not working | `rebootNow` is queued — the sync-then-reboot pattern forces immediate check-in |
 
 ---
 
-## Security Considerations
+## License
 
-- **Client secrets** — Store in environment variables, never commit to source control. Add `server/.env` to `.gitignore`.
-- **Destructive actions** — The agent requires user confirmation before executing wipe or retire operations.
-- **Least privilege** — Start with read-only permissions (9 permissions) and add write permissions only as needed.
-- **Session isolation** — Each browser session has its own chat history. No data persists between browser sessions (except agent memory notes).
-- **SQLite databases** — Stored locally in `server/data/`. Contains metric history, agent notes, and scheduled tasks. Not encrypted at rest.
-- **CORS** — Server only accepts requests from `http://localhost:5173` by default. Update in `server/src/index.ts` for production.
-- **Multi-tenant secrets** — The `AZURE_TENANTS` env var contains secrets for all tenants. Protect the `.env` file accordingly.
+MIT
+
+---
+
+Built with ❤️ by **Intune007** — *License to Manage!*

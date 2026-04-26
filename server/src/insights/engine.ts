@@ -375,8 +375,7 @@ Write a professional executive summary covering: overall health assessment, key 
   const completion = await openai.chat.completions.create({
     model: config.azureOpenAI.deployment,
     messages: [{ role: "user", content: prompt }],
-    max_tokens: 500,
-    temperature: 0.3,
+    max_completion_tokens: 500,
   });
 
   return completion.choices[0]?.message?.content?.trim() || buildFallbackSummary(stats, complianceRate, staleRate, updateComplianceRate);

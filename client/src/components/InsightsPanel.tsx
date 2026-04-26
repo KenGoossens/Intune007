@@ -224,7 +224,12 @@ export default function InsightsPanel() {
           <ScoreCard
             label="Total Devices"
             value={String(report.stats.totalDevices)}
-            detail={`${report.stats.windowsDevices}W ${report.stats.iosDevices}i ${report.stats.androidDevices}A ${report.stats.macDevices}M`}
+            detail={[
+              report.stats.windowsDevices > 0 ? `${report.stats.windowsDevices} Windows` : null,
+              report.stats.iosDevices > 0 ? `${report.stats.iosDevices} iOS` : null,
+              report.stats.androidDevices > 0 ? `${report.stats.androidDevices} Android` : null,
+              report.stats.macDevices > 0 ? `${report.stats.macDevices} macOS` : null,
+            ].filter(Boolean).join(", ") || "No devices"}
             status="info"
           />
         </div>

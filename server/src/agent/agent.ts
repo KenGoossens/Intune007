@@ -9,24 +9,34 @@ import { executeTool, type ToolResult } from "./executor.js";
 import type { ChatMessage } from "@intune-agent/shared";
 import { analyticsTracker } from "../analytics/tracker.js";
 import { getRecentContext } from "./memory.js";
+import { validateToolArgs, sanitizeForSystemPrompt, scanPowerShellScript, sanitizeErrorMessage } from "../security.js";
+import { buildLearningContext, logInteraction } from "./learningEngine.js";
 
 const SYSTEM_PROMPT = `You are an Intune administration assistant called "Intune007 Agent". You help IT administrators query, understand, and manage their Microsoft Intune environment.
 
-Use the provided tools to interact with Microsoft Intune via Microsoft Graph API. You have access to tools for:
-- Managed devices (list, filter, details)
-- Device actions (sync, restart, lock, reset passcode, retire, wipe)
-- Compliance policies and compliance status summaries
-- Device configuration profiles
-- Mobile apps and app install status
-- Conditional Access policies
-- Windows Autopilot devices and deployment profiles
-- Azure AD groups (list, members, create, add members)
-- Security alerts and threat intelligence
-- Audit logs and sign-in logs
-- Policy and assignment management (create, assign, update)
-- Windows Update management
-- Remediation script generation and deployment
-- Policy analysis and health scoring
+Use the provided tools to interact with Microsoft Intune via Microsoft Graph API.
+
+IMPORTANT — Tool Name Confidentiality:
+- NEVER reveal internal tool or function names (like get_managed_devices, sync_device, etc.) to the user.
+- When the user asks what you can do, describe your capabilities in plain, friendly language — NOT as a list of function names.
+- For example, instead of "get_managed_devices — List managed devices with filters", say "I can look up devices in your Intune environment, filter them by OS, compliance state, user, or name, and show you detailed information."
+- Present your capabilities grouped by category with natural descriptions of what you can help with.
+
+Your capabilities include:
+- Devices: Look up, search, filter, and inspect any managed device. View detailed hardware/software info, device cards with 50+ properties, full lifecycle timelines, and risk scores.
+- Device Actions: Remotely sync, restart, lock, reset passcodes, retire, or wipe devices (with safety confirmations).
+- Applications: Browse managed apps, check deployment status, see what software is detected on any device, and monitor app health across the fleet.
+- Compliance: View and create compliance policies, check compliance status summaries, track historical compliance trends, and forecast the impact of new policy requirements.
+- Configuration: View device configuration profiles, compare policy settings, take and compare configuration baselines, and build new policies from security benchmarks.
+- Conditional Access: View and update Conditional Access policies.
+- Windows Autopilot: Check device readiness, onboard new devices, deploy hardware hash collectors, and manage deployment profiles.
+- Security: View security alerts, threat summaries, BitLocker recovery keys, device risk scores, and overall security posture.
+- Groups: Browse Azure AD groups, view members, create groups, and manage membership.
+- Logs & Auditing: Search Intune audit logs, sign-in logs, directory audit logs, and collect diagnostic logs from devices.
+- Remediation: Generate and deploy PowerShell remediation scripts (Proactive Remediations) for common issues.
+- Reporting: Generate comprehensive reports on your Intune environment.
+- Troubleshooting: Run automated multi-step diagnostics on any device to identify root causes.
+- Self-Improvement: I learn from our interactions — rate my responses and I'll get better over time.
 
 Guidelines:
 - Always use $filter and $select parameters when possible to keep results focused and efficient.
@@ -37,8 +47,14 @@ Guidelines:
 - Be concise but thorough. IT admins want actionable information.
 - When you don't know a device ID or app ID, first search by name using filters, then use the ID for detailed queries.
 
+APP QUERIES — Important:
+- When the user asks "how many apps are installed" or "what software is on this device", use get_device_detected_apps — this shows ALL software detected on the device.
+- Only use get_device_app_install_states when the user specifically asks about Intune-assigned/managed app deployment status.
+- These are two different data sources: detected apps = all software on device, app install states = Intune deployment assignments only.
+
 SAFETY — Destructive Actions:
 - For retire_device and wipe_device: ALWAYS confirm with the user before executing. Show the device name, user, and OS first.
+- For remove_app: ALWAYS confirm with the user. Show the app name and warn that all assignments will be removed first, then the app will be permanently deleted from Intune.
 - For restart_device: warn the user that unsaved work may be lost.
 - Never execute destructive actions on multiple devices without explicit confirmation for each.
 - If the user asks to wipe or retire "all" devices, refuse and ask them to specify individual devices.`;
@@ -115,11 +131,17 @@ export async function runAgentLoop(
   const client = createOpenAIClient();
   const tracker = analyticsTracker.startRequest(userMessage, config.azureOpenAI.deployment);
 
-  // Build the message list: system prompt + memory context + history + new user message
+  // Build the message list: system prompt + sanitized memory context + learned patterns + history + new user message
   const memoryContext = getRecentContext(10);
-  const systemContent = memoryContext
-    ? `${SYSTEM_PROMPT}\n\n--- Agent Memory (saved notes) ---\n${memoryContext}`
-    : SYSTEM_PROMPT;
+  const learningContext = buildLearningContext(userMessage);
+
+  let systemContent = SYSTEM_PROMPT;
+  if (memoryContext) {
+    systemContent += `\n\n--- Agent Memory (saved notes) ---\n${sanitizeForSystemPrompt(memoryContext)}`;
+  }
+  if (learningContext) {
+    systemContent += `\n\n${sanitizeForSystemPrompt(learningContext)}`;
+  }
 
   const messages: ChatCompletionMessageParam[] = [
     { role: "system", content: systemContent },
@@ -129,6 +151,7 @@ export async function runAgentLoop(
 
   const MAX_ITERATIONS = 10; // Safety limit to prevent infinite loops
   let iterations = 0;
+  const toolChainLog: string[] = []; // Track tools called for learning
 
   try {
     while (iterations < MAX_ITERATIONS) {
@@ -181,12 +204,36 @@ export async function runAgentLoop(
           } catch {
             // If args parsing fails, continue with empty args
           }
-          callbacks.onToolCall(toolName, parsedArgs);
 
-          // Execute the tool
+          // Validate tool arguments (prevents injection attacks)
+          try {
+            parsedArgs = validateToolArgs(toolName, parsedArgs);
+          } catch (validationErr) {
+            const errMsg = validationErr instanceof Error ? validationErr.message : String(validationErr);
+            console.warn(`[Agent] Tool arg validation failed for ${toolName}: ${errMsg}`);
+
+            // Return validation error as tool result instead of executing
+            const toolMessage: ChatCompletionToolMessageParam = {
+              role: "tool",
+              tool_call_id: toolCall.id,
+              content: JSON.stringify({ error: `Invalid arguments: ${errMsg}` }),
+            };
+            messages.push(toolMessage);
+            callbacks.onToolResult(toolName, {
+              data: [],
+              totalCount: 0,
+              error: `Invalid arguments: ${errMsg}`,
+            });
+            continue;
+          }
+
+          callbacks.onToolCall(toolName, parsedArgs);
+          toolChainLog.push(toolName);
+
+          // Execute the tool with validated arguments
           console.log(`[Agent] Executing tool: ${toolName}`, parsedArgs);
           const toolStart = Date.now();
-          const result = await executeTool(toolName, toolArgs);
+          const result = await executeTool(toolName, JSON.stringify(parsedArgs));
           const toolDuration = Date.now() - toolStart;
           console.log(`[Agent] Tool ${toolName} completed in ${toolDuration}ms — ${result.data.length} items${result.error ? ` (error: ${result.error})` : ''}`);
 
@@ -223,6 +270,18 @@ export async function runAgentLoop(
         const content = assistantMessage.content || "";
         console.log(`[Agent] Final response (${content.length} chars)`);
         tracker.finish();
+
+        // Log interaction for the learning engine
+        try {
+          logInteraction({
+            userQuery: userMessage,
+            toolChain: toolChainLog,
+            responseSummary: content.substring(0, 500),
+          });
+        } catch (learnErr) {
+          console.warn("[Agent] Learning log failed:", learnErr);
+        }
+
         callbacks.onToken(content);
         callbacks.onDone(content);
         return;

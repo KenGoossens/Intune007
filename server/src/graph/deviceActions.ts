@@ -43,10 +43,23 @@ export async function syncDevice(deviceId: string): Promise<DeviceActionResult> 
 
 /**
  * Remotely restart a managed device.
+ * Sends a sync first to force the device to check in, then queues the reboot.
+ * POST /deviceManagement/managedDevices/{id}/syncDevice
  * POST /deviceManagement/managedDevices/{id}/rebootNow
  */
 export async function restartDevice(deviceId: string): Promise<DeviceActionResult> {
   const client = getGraphClient();
+
+  // Step 1: Force sync so the device checks in and receives the reboot command
+  try {
+    await client
+      .api(`/deviceManagement/managedDevices/${deviceId}/syncDevice`)
+      .post({});
+  } catch {
+    // Sync failure is non-fatal — proceed with reboot anyway
+  }
+
+  // Step 2: Queue the reboot
   await client
     .api(`/deviceManagement/managedDevices/${deviceId}/rebootNow`)
     .post({});
@@ -55,7 +68,7 @@ export async function restartDevice(deviceId: string): Promise<DeviceActionResul
     success: true,
     action: "rebootNow",
     deviceId,
-    message: "Restart command sent successfully. The device will reboot shortly.",
+    message: "Sync + restart commands sent. A sync was triggered first to force the device to check in, then the reboot was queued. The device should reboot within a few minutes if it's online.",
     timestamp: new Date().toISOString(),
   };
 }

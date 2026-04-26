@@ -20,6 +20,7 @@ import {
 import { useAlertStore } from "../stores/alertStore.ts";
 import type { Alert } from "@intune-agent/shared";
 import { useState } from "react";
+import { DeviceDrillLink, UserDrillLink, ComplianceStateDrillLink, TroubleshootDrillLink } from "./DrillLinks.tsx";
 
 const SEVERITY_CONFIG = {
   critical: {
@@ -318,7 +319,8 @@ function AlertCard({
                         key={col}
                         className="py-1.5 px-2 text-gray-400 max-w-[200px] truncate"
                       >
-                        {formatCellValue(
+                        {renderAlertCellValue(
+                          col,
                           (item as Record<string, unknown>)[col]
                         )}
                       </td>
@@ -374,4 +376,35 @@ function formatCellValue(value: unknown): string {
     }
   }
   return String(value);
+}
+
+const ALERT_DEVICE_KEYS = new Set(["deviceName", "device_name", "DeviceName", "managedDeviceName"]);
+const ALERT_UPN_KEYS = new Set(["userPrincipalName", "userDisplayName", "upn"]);
+const ALERT_STATE_KEYS = new Set(["complianceState", "state"]);
+
+function renderAlertCellValue(col: string, value: unknown): React.ReactNode {
+  if (value == null) return "—";
+  const strVal = String(value);
+
+  // Device names → clickable
+  if (ALERT_DEVICE_KEYS.has(col) && strVal && strVal !== "—") {
+    return (
+      <span className="flex items-center gap-1">
+        <DeviceDrillLink name={strVal} className="text-xs" />
+        <TroubleshootDrillLink deviceName={strVal} className="text-[10px]" />
+      </span>
+    );
+  }
+
+  // User UPNs → clickable
+  if (ALERT_UPN_KEYS.has(col) && strVal.includes("@")) {
+    return <UserDrillLink upn={strVal} className="text-xs" />;
+  }
+
+  // Compliance state → clickable
+  if (ALERT_STATE_KEYS.has(col)) {
+    return <ComplianceStateDrillLink state={strVal} className="text-xs" />;
+  }
+
+  return formatCellValue(value);
 }

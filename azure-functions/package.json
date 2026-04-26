@@ -1,0 +1,23 @@
+{
+  "name": "intune007-autopilot-functions",
+  "version": "1.0.0",
+  "description": "Azure Functions for Autopilot hardware hash ingestion — devices POST their hash here during OOBE/provisioning",
+  "main": "dist/src/functions/*.js",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w",
+    "start": "func start",
+    "prestart": "npm run build"
+  },
+  "dependencies": {
+    "@azure/functions": "^4.5.0",
+    "@azure/identity": "^4.2.0",
+    "@microsoft/microsoft-graph-client": "^3.0.7",
+    "@microsoft/microsoft-graph-client-authProviders-azureTokenCredentials": "^1.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0",
+    "@types/node": "^22.0.0",
+    "azure-functions-core-tools": "^4.0.0"
+  }
+}

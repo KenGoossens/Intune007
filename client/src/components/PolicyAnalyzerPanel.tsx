@@ -18,6 +18,8 @@ import {
 } from "lucide-react";
 import { usePolicyAnalyzerStore } from "../stores/policyAnalyzerStore.ts";
 import type { PolicyFinding, PolicyFindingCategory, PolicyFindingSeverity } from "@intune-agent/shared";
+import { DeviceDrillLink, PolicyDrillLink } from "./DrillLinks.tsx";
+import { useNavigationStore } from "../stores/navigationStore.ts";
 
 const SEVERITY_CONFIG: Record<PolicyFindingSeverity, { icon: React.ReactNode; color: string; bg: string; border: string }> = {
   critical: {
@@ -57,6 +59,8 @@ const CATEGORY_CONFIG: Record<PolicyFindingCategory, { icon: React.ReactNode; la
 
 export default function PolicyAnalyzerPanel() {
   const { result, loading, error, fetch: fetchAnalysis, refresh } = usePolicyAnalyzerStore();
+  const [severityFilter, setSeverityFilter] = useState<PolicyFindingSeverity | "all">("all");
+  const navigateTo = useNavigationStore((s) => s.navigateTo);
 
   useEffect(() => {
     fetchAnalysis();
@@ -116,31 +120,47 @@ export default function PolicyAnalyzerPanel() {
           <>
             {/* Score Ring + Summary */}
             <div className="flex items-center gap-4">
-              <ScoreRing score={result.score} />
+              <button onClick={() => navigateTo("securityPosture")} title="View Security Posture">
+                <ScoreRing score={result.score} />
+              </button>
               <div className="flex-1 grid grid-cols-4 gap-2">
-                <SummaryBadge severity="critical" count={result.summary.critical} />
-                <SummaryBadge severity="warning" count={result.summary.warning} />
-                <SummaryBadge severity="info" count={result.summary.info} />
-                <SummaryBadge severity="good" count={result.summary.good} />
+                <SummaryBadge severity="critical" count={result.summary.critical} active={severityFilter === "critical"} onClick={() => setSeverityFilter(severityFilter === "critical" ? "all" : "critical")} />
+                <SummaryBadge severity="warning" count={result.summary.warning} active={severityFilter === "warning"} onClick={() => setSeverityFilter(severityFilter === "warning" ? "all" : "warning")} />
+                <SummaryBadge severity="info" count={result.summary.info} active={severityFilter === "info"} onClick={() => setSeverityFilter(severityFilter === "info" ? "all" : "info")} />
+                <SummaryBadge severity="good" count={result.summary.good} active={severityFilter === "good"} onClick={() => setSeverityFilter(severityFilter === "good" ? "all" : "good")} />
               </div>
             </div>
 
-            {/* Stats Row */}
+            {/* Stats Row — clickable */}
             <div className="grid grid-cols-4 gap-2">
-              <MiniStat label="Devices" value={result.stats.totalDevices} />
-              <MiniStat label="Compliance" value={result.stats.compliancePolicies} />
-              <MiniStat label="Config Profiles" value={result.stats.configurationProfiles} />
-              <MiniStat label="CA Policies" value={result.stats.conditionalAccessPolicies} />
+              <StatLink label="Devices" value={result.stats.totalDevices} onClick={() => navigateTo("securityPosture")} />
+              <StatLink label="Compliance" value={result.stats.compliancePolicies} onClick={() => navigateTo("data", { query: "compliance policies" })} />
+              <StatLink label="Config Profiles" value={result.stats.configurationProfiles} onClick={() => navigateTo("data", { query: "config profiles" })} />
+              <StatLink label="CA Policies" value={result.stats.conditionalAccessPolicies} onClick={() => navigateTo("data", { query: "conditional access" })} />
             </div>
+
+            {/* Severity filter indicator */}
+            {severityFilter !== "all" && (
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-gray-500">Showing: <span className="capitalize text-gray-300">{severityFilter}</span> findings</span>
+                <button onClick={() => setSeverityFilter("all")} className="text-[10px] text-brand-400 hover:text-brand-300">Show all</button>
+              </div>
+            )}
 
             {/* Findings by severity */}
             <div className="space-y-2">
-              <div className="text-xs font-medium text-gray-400">Findings</div>
+              <div className="text-xs font-medium text-gray-400">
+                Findings {severityFilter !== "all" ? `(${severityFilter})` : ""}
+              </div>
               {result.findings
+                .filter((f) => severityFilter === "all" || f.severity === severityFilter)
                 .sort((a, b) => severityOrder(a.severity) - severityOrder(b.severity))
                 .map((f) => (
                   <FindingCard key={f.id} finding={f} />
                 ))}
+              {result.findings.filter((f) => severityFilter === "all" || f.severity === severityFilter).length === 0 && (
+                <p className="text-xs text-gray-500 text-center py-4">No {severityFilter} findings</p>
+              )}
             </div>
 
             <div className="text-[10px] text-gray-600 text-center">
@@ -192,14 +212,18 @@ function ScoreRing({ score }: { score: number }) {
   );
 }
 
-function SummaryBadge({ severity, count }: { severity: PolicyFindingSeverity; count: number }) {
+function SummaryBadge({ severity, count, active, onClick }: { severity: PolicyFindingSeverity; count: number; active?: boolean; onClick?: () => void }) {
   const cfg = SEVERITY_CONFIG[severity];
   return (
-    <div className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg ${cfg.bg} border ${cfg.border}`}>
+    <button
+      onClick={onClick}
+      className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg ${cfg.bg} border ${cfg.border} transition-all hover:brightness-125 ${active ? "ring-2 ring-white/30 scale-105" : ""}`}
+      title={`Filter by ${severity} findings`}
+    >
       <span className={cfg.color}>{cfg.icon}</span>
       <span className={`text-xs font-semibold ${cfg.color}`}>{count}</span>
       <span className="text-[10px] text-gray-400 capitalize">{severity}</span>
-    </div>
+    </button>
   );
 }
 
@@ -212,10 +236,24 @@ function MiniStat({ label, value }: { label: string; value: number }) {
   );
 }
 
+function StatLink({ label, value, onClick }: { label: string; value: number; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="bg-gray-800/50 rounded-lg border border-gray-700/50 px-2.5 py-2 text-center hover:bg-gray-700/50 hover:border-brand-500/30 transition-all group"
+      title={`View ${label}`}
+    >
+      <div className="text-sm font-semibold text-white group-hover:text-brand-400 transition-colors">{value}</div>
+      <div className="text-[10px] text-gray-500 group-hover:text-gray-400">{label} →</div>
+    </button>
+  );
+}
+
 function FindingCard({ finding }: { finding: PolicyFinding }) {
   const [expanded, setExpanded] = useState(false);
   const sev = SEVERITY_CONFIG[finding.severity];
   const cat = CATEGORY_CONFIG[finding.category];
+  const navigateTo = useNavigationStore((s) => s.navigateTo);
 
   return (
     <div className={`rounded-lg border ${sev.border} ${sev.bg} overflow-hidden`}>
@@ -251,9 +289,7 @@ function FindingCard({ finding }: { finding: PolicyFinding }) {
               <div className="text-[10px] font-medium text-gray-400 mb-1">Affected Items</div>
               <div className="flex flex-wrap gap-1">
                 {finding.affectedItems.slice(0, 10).map((item, i) => (
-                  <span key={i} className="px-1.5 py-0.5 rounded text-[10px] bg-gray-800 text-gray-300 border border-gray-700">
-                    {item}
-                  </span>
+                  <AffectedItemLink key={i} item={item} category={finding.category} />
                 ))}
                 {finding.affectedItems.length > 10 && (
                   <span className="px-1.5 py-0.5 rounded text-[10px] text-gray-500">
@@ -263,6 +299,53 @@ function FindingCard({ finding }: { finding: PolicyFinding }) {
               </div>
             </div>
           )}
+
+          {/* Action buttons */}
+          <div className="flex flex-wrap gap-2 pt-1">
+            {(finding.category === "device_health" || finding.category === "compliance") && finding.severity !== "good" && (
+              <button
+                onClick={() => navigateTo("securityPosture")}
+                className="flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 hover:bg-blue-500/20 transition-colors"
+              >
+                <Shield size={10} /> View Posture
+              </button>
+            )}
+            {finding.severity !== "good" && (
+              <button
+                onClick={() => navigateTo("remediation", { query: finding.title })}
+                className="flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded bg-orange-500/10 text-orange-400 border border-orange-500/20 hover:bg-orange-500/20 transition-colors"
+              >
+                <Settings size={10} /> Remediate
+              </button>
+            )}
+            {finding.category === "configuration" && (
+              <button
+                onClick={() => navigateTo("policyBuilder", { query: finding.title })}
+                className="flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded bg-purple-500/10 text-purple-400 border border-purple-500/20 hover:bg-purple-500/20 transition-colors"
+              >
+                <Settings size={10} /> Build Policy
+              </button>
+            )}
+            {finding.category === "conditional_access" && (
+              <button
+                onClick={() => navigateTo("data", { query: "conditional access policies" })}
+                className="flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 hover:bg-cyan-500/20 transition-colors"
+              >
+                <KeyRound size={10} /> View CA Policies
+              </button>
+            )}
+            {finding.affectedItems.length > 0 && finding.affectedItems.length <= 5 && (finding.category === "device_health" || finding.category === "compliance") && (
+              <button
+                onClick={() => {
+                  const first = finding.affectedItems[0];
+                  if (first) navigateTo("troubleshooter", { deviceName: first });
+                }}
+                className="flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 hover:bg-amber-500/20 transition-colors"
+              >
+                <Monitor size={10} /> Troubleshoot
+              </button>
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -271,4 +354,35 @@ function FindingCard({ finding }: { finding: PolicyFinding }) {
 
 function severityOrder(s: PolicyFindingSeverity): number {
   return { critical: 0, warning: 1, info: 2, good: 3 }[s];
+}
+
+/** Render an affected item as a clickable link based on finding category */
+function AffectedItemLink({ item, category }: { item: string; category: PolicyFindingCategory }) {
+  // Device-related findings → link to Device Card
+  if (category === "device_health" || category === "compliance") {
+    // If it looks like a device name (no spaces or short string)
+    if (!item.includes(" ") || item.length < 30) {
+      return (
+        <span className="px-1.5 py-0.5 rounded text-[10px] bg-gray-800 border border-gray-700">
+          <DeviceDrillLink name={item} className="text-[10px]" />
+        </span>
+      );
+    }
+  }
+
+  // Policy-related findings → link to Policy Analyzer
+  if (category === "configuration" || category === "conditional_access" || category === "app_management") {
+    return (
+      <span className="px-1.5 py-0.5 rounded text-[10px] bg-gray-800 border border-gray-700">
+        <PolicyDrillLink name={item} className="text-[10px]" />
+      </span>
+    );
+  }
+
+  // Default: plain text
+  return (
+    <span className="px-1.5 py-0.5 rounded text-[10px] bg-gray-800 text-gray-300 border border-gray-700">
+      {item}
+    </span>
+  );
 }

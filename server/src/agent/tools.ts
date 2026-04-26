@@ -157,7 +157,7 @@ export const agentTools: ChatCompletionTool[] = [
     function: {
       name: "get_device_detected_apps",
       description:
-        "Get all apps detected/found on a specific managed device. Shows what software is actually installed on the device (detected by Intune agent). Requires the device ID — use get_managed_devices first to find it by name.",
+        "Get all software actually installed/detected on a specific managed device. This is the PRIMARY tool for answering 'how many apps are installed on this device' or 'what software is on this device'. Returns the full list of detected applications with names and versions. USE THIS TOOL when the user asks about installed apps, software, or applications on a device. Requires the device ID — use get_managed_devices first to find it by name.",
       parameters: {
         type: "object",
         properties: {
@@ -179,7 +179,7 @@ export const agentTools: ChatCompletionTool[] = [
     function: {
       name: "get_device_app_install_states",
       description:
-        "Get the install states of Intune-managed (assigned) apps for a specific device. Shows which managed apps are installed, pending, or failed on the device. This answers 'how many apps are assigned to this device'. Requires the device ID — use get_managed_devices first to find it by name.",
+        "Get Intune-managed app assignment and deployment status for a specific device. This checks which apps were ASSIGNED to the device through Intune and their deployment state (installed/pending/failed). NOTE: This does NOT show all installed software — only Intune-assigned apps. To see ALL software on the device, use get_device_detected_apps instead. Requires the device ID.",
       parameters: {
         type: "object",
         properties: {
@@ -979,6 +979,475 @@ export const agentTools: ChatCompletionTool[] = [
           },
         },
         required: ["tenantId"],
+      },
+    },
+  },
+  // ─── Advanced Features Tools ──────────────────────────────────
+  {
+    type: "function",
+    function: {
+      name: "generate_report",
+      description:
+        "Generate a comprehensive Intune report from a natural language description. Pulls data from multiple Intune APIs (devices, compliance, apps, policies, security, updates) and generates a formatted markdown report with AI. Use this when the user asks for a report, summary, or overview of their environment.",
+      parameters: {
+        type: "object",
+        properties: {
+          prompt: {
+            type: "string",
+            description: "Description of the report to generate. Examples: 'Full executive summary', 'Compliance report for Windows devices', 'Security posture report'",
+          },
+        },
+        required: ["prompt"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_device_risk_scores",
+      description:
+        "Compute risk scores (0-100) for all managed devices based on compliance, sync age, encryption, OS version, and config conflicts. Returns fleet average, risk distribution, and per-device scores with factor breakdown.",
+      parameters: {
+        type: "object",
+        properties: {},
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_device_card",
+      description:
+        "Get a comprehensive device information card with 50+ properties including hardware (RAM, storage, CPU), security (encryption, TPM, secure boot, BitLocker), network (WiFi/Ethernet MAC, IP), enrollment details, and compliance status. Use this for detailed device information.",
+      parameters: {
+        type: "object",
+        properties: {
+          deviceName: {
+            type: "string",
+            description: "The device name to look up",
+          },
+        },
+        required: ["deviceName"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_security_posture",
+      description:
+        "Get the overall security posture of the Intune environment including compliance rate, encryption rate, stale device rate, per-device breakdown, and historical trends. Use this when the user asks about security posture, security health, or overall security status.",
+      parameters: {
+        type: "object",
+        properties: {},
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_app_health",
+      description:
+        "Get app deployment health — shows all managed apps, which devices they're detected on, deployment rate, and per-device details. Use this when the user asks about app deployments, app install status, or which apps are on which devices.",
+      parameters: {
+        type: "object",
+        properties: {},
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "check_autopilot_readiness",
+      description:
+        "Check if a device is ready for Autopilot deployment by serial number. Verifies registration, profile assignment, group tag, and enrollment state. Returns a readiness score.",
+      parameters: {
+        type: "object",
+        properties: {
+          serialNumber: {
+            type: "string",
+            description: "The serial number of the device to check",
+          },
+        },
+        required: ["serialNumber"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "onboard_autopilot_device",
+      description:
+        "Full automated Autopilot onboarding pipeline: imports the hardware hash into Intune, sets a group tag for dynamic group targeting, adds the device to a deployment group, and verifies profile assignment. Use this when a user wants to register and prepare a new device for Autopilot. Requires the serial number and Base64-encoded hardware hash. If the user doesn't have the hardware hash, offer to provide the PowerShell collection script first.",
+      parameters: {
+        type: "object",
+        properties: {
+          serialNumber: {
+            type: "string",
+            description: "The device serial number",
+          },
+          hardwareHash: {
+            type: "string",
+            description: "Base64-encoded hardware hash from Get-WindowsAutopilotInfo or OEM",
+          },
+          groupTag: {
+            type: "string",
+            description: "Group tag for dynamic group targeting (e.g., 'Sales-Dept', 'Kiosk-Mode')",
+          },
+          assignedUserUpn: {
+            type: "string",
+            description: "UPN of the user to pre-assign to the device (optional)",
+          },
+          targetGroupId: {
+            type: "string",
+            description: "Azure AD group ID to add the device to for profile targeting (optional)",
+          },
+        },
+        required: ["serialNumber", "hardwareHash"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_autopilot_collection_script",
+      description:
+        "Get the PowerShell script that collects a device's hardware hash for Autopilot registration. If an ingestUrl is provided (Azure Function or Intune007 API), the script will automatically upload the hash. Otherwise it saves to CSV for manual import. Provide this when the user needs to collect the hardware hash from a bare-metal or unmanaged device.",
+      parameters: {
+        type: "object",
+        properties: {
+          ingestUrl: {
+            type: "string",
+            description: "Optional URL of the Azure Function or Intune007 API endpoint to auto-upload the hash to (e.g., https://my-func.azurewebsites.net/api/autopilot/ingest)",
+          },
+          apiKey: {
+            type: "string",
+            description: "API key for the ingest endpoint (required if ingestUrl is set)",
+          },
+          groupTag: {
+            type: "string",
+            description: "Group tag to include in the upload",
+          },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "deploy_hash_collector",
+      description:
+        "Deploy an automated hardware hash collector as a Proactive Remediation to a group of ALREADY ENROLLED Intune devices. This is for converting existing managed devices to Autopilot. The script runs on each device, collects the hardware hash, and reports it back. Use process_collected_hashes afterward to import the collected hashes into Autopilot.",
+      parameters: {
+        type: "object",
+        properties: {
+          targetGroupId: {
+            type: "string",
+            description: "Azure AD group ID containing the enrolled devices to collect hashes from",
+          },
+          displayName: {
+            type: "string",
+            description: "Custom name for the Proactive Remediation script (default: 'Intune007 — Autopilot Hash Collector')",
+          },
+          scheduleIntervalMinutes: {
+            type: "number",
+            description: "How often the script should run in minutes",
+          },
+        },
+        required: ["targetGroupId"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "process_collected_hashes",
+      description:
+        "Process hardware hashes that were collected by the deployed hash collector (Proactive Remediation). Polls the run states to find devices that reported their hash, then optionally auto-imports each one into Autopilot. Use this after deploy_hash_collector.",
+      parameters: {
+        type: "object",
+        properties: {
+          scriptId: {
+            type: "string",
+            description: "The Proactive Remediation script ID (from deploy_hash_collector response)",
+          },
+          groupTag: {
+            type: "string",
+            description: "Group tag to set on imported devices",
+          },
+          targetGroupId: {
+            type: "string",
+            description: "Azure AD group to add imported devices to",
+          },
+          autoImport: {
+            type: "boolean",
+            description: "Whether to automatically import collected hashes into Autopilot (default: true)",
+          },
+        },
+        required: ["scriptId"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "ingest_autopilot_csv",
+      description:
+        "Import hardware hashes from CSV data (the standard format from Get-WindowsAutopilotInfo). The CSV should have columns: Device Serial Number, Windows Product ID, Hardware Hash. Each device will be automatically imported into Autopilot.",
+      parameters: {
+        type: "object",
+        properties: {
+          csvData: {
+            type: "string",
+            description: "The full CSV text content with headers and data rows",
+          },
+          groupTag: {
+            type: "string",
+            description: "Group tag to set on imported devices",
+          },
+          targetGroupId: {
+            type: "string",
+            description: "Azure AD group to add imported devices to",
+          },
+        },
+        required: ["csvData"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_device_timeline",
+      description:
+        "Get the lifecycle timeline of a device showing enrollment, compliance changes, config profile assignments, admin actions, and sync events in chronological order.",
+      parameters: {
+        type: "object",
+        properties: {
+          deviceName: {
+            type: "string",
+            description: "The device name to get the timeline for",
+          },
+        },
+        required: ["deviceName"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "run_compliance_forecast",
+      description:
+        "Run a 'what-if' compliance forecast — predict how many devices would fail if a new requirement is applied. Supports: encryption, compliant, synced_7days, synced_14days, corporate, windows.",
+      parameters: {
+        type: "object",
+        properties: {
+          requirement: {
+            type: "string",
+            description: "The requirement to forecast. Options: encryption, compliant, synced_7days, synced_14days, corporate, windows",
+          },
+        },
+        required: ["requirement"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "manage_config_baseline",
+      description:
+        "Take a snapshot of the current Intune configuration (policies, profiles, CA rules) or compare current state against a saved snapshot to detect drift. Use action 'snapshot' to save, 'list' to list snapshots, 'compare' to detect drift.",
+      parameters: {
+        type: "object",
+        properties: {
+          action: {
+            type: "string",
+            enum: ["snapshot", "list", "compare"],
+            description: "Action to perform",
+          },
+          name: {
+            type: "string",
+            description: "Name for the snapshot (required for 'snapshot' action)",
+          },
+          snapshotId: {
+            type: "number",
+            description: "ID of the snapshot to compare against (required for 'compare' action)",
+          },
+        },
+        required: ["action"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "run_troubleshooter",
+      description:
+        "Run an automated 7-step diagnostic on a device: resolve device, check compliance, config profiles, app installs, group membership, sync status, and AI root cause analysis. Use this when a user reports a device issue.",
+      parameters: {
+        type: "object",
+        properties: {
+          deviceName: {
+            type: "string",
+            description: "The device name or ID to diagnose",
+          },
+          problem: {
+            type: "string",
+            description: "Description of the problem (optional, defaults to general health check)",
+          },
+        },
+        required: ["deviceName"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_learning_stats",
+      description:
+        "Get statistics about what the agent has learned from past interactions: total interactions logged, feedback scores, number of learned exemplar patterns, corrections, and top tool chain patterns. Use this when the user asks how the agent is improving or what it has learned.",
+      parameters: {
+        type: "object",
+        properties: {},
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "record_learning",
+      description:
+        "Record a lesson or correction that the agent should remember for future interactions. Use this when you realize you made a mistake or found a better approach. The lesson will be used to avoid the same mistake in the future.",
+      parameters: {
+        type: "object",
+        properties: {
+          originalQuery: {
+            type: "string",
+            description: "The original user query that led to the issue",
+          },
+          lesson: {
+            type: "string",
+            description: "What to do differently next time (e.g., 'Use get_device_detected_apps instead of get_app_install_status for installed software questions')",
+          },
+        },
+        required: ["originalQuery", "lesson"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "fix_app_icon",
+      description:
+        "Search the internet for an app icon and upload it to the Intune app. Use this when the user asks to find, fix, or refresh an app icon/logo. You can provide either the app ID or just the app name — if only the name is given, the tool will search Intune for the matching app automatically. Set force=true to replace an existing icon.",
+      parameters: {
+        type: "object",
+        properties: {
+          appId: {
+            type: "string",
+            description: "The Intune app ID (GUID). Optional — if not provided, the tool will search by appName.",
+          },
+          appName: {
+            type: "string",
+            description: "The display name of the app (used to search Intune and to find the icon online)",
+          },
+          publisher: {
+            type: "string",
+            description: "The app publisher (helps find the right icon domain)",
+          },
+          force: {
+            type: "boolean",
+            description: "If true, replaces the existing icon even if one is already set. Use for refreshing outdated icons.",
+          },
+        },
+        required: ["appName"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "fix_all_missing_icons",
+      description:
+        "Scan ALL managed apps in Intune for missing icons and automatically search and upload icons for each one. This is a bulk operation — use it when the user asks to fix all missing app icons at once. Returns a summary of how many icons were found and uploaded.",
+      parameters: {
+        type: "object",
+        properties: {},
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "remove_app",
+      description:
+        "Remove an app from Intune. This follows the correct sequence: first removes ALL group assignments, then deletes the app. DESTRUCTIVE ACTION — always confirm with the user before executing. Show the app name and ask for explicit confirmation. Requires the Intune app ID (GUID).",
+      parameters: {
+        type: "object",
+        properties: {
+          appId: {
+            type: "string",
+            description: "The Intune app ID (GUID) to remove",
+          },
+          appName: {
+            type: "string",
+            description: "The display name of the app (for confirmation logging)",
+          },
+        },
+        required: ["appId"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "rename_app",
+      description:
+        "Rename a single app in Intune. Provide the app ID (or name to search for) and the new display name.",
+      parameters: {
+        type: "object",
+        properties: {
+          appId: {
+            type: "string",
+            description: "The Intune app ID (GUID). Optional if appName is provided.",
+          },
+          appName: {
+            type: "string",
+            description: "Current app name to search for (used if appId is not provided)",
+          },
+          newName: {
+            type: "string",
+            description: "The new display name for the app",
+          },
+        },
+        required: ["newName"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "bulk_rename_apps",
+      description:
+        "Find-and-replace text in app names across ALL managed apps in Intune. Loops through every app, finds those containing the search text, and replaces it. Example: replace '1120_firstname_' with '' to clean up naming prefixes. Always confirm with the user before executing — show how many apps will be affected.",
+      parameters: {
+        type: "object",
+        properties: {
+          search: {
+            type: "string",
+            description: "The text to search for in app display names",
+          },
+          replace: {
+            type: "string",
+            description: "The text to replace it with (use empty string to remove)",
+          },
+        },
+        required: ["search", "replace"],
       },
     },
   },

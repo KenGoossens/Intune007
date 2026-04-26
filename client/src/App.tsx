@@ -8,10 +8,24 @@ import PolicyAnalyzerPanel from "./components/PolicyAnalyzerPanel.tsx";
 import LogViewerPanel from "./components/LogViewerPanel.tsx";
 import TasksPanel from "./components/TasksPanel.tsx";
 import InsightsPanel from "./components/InsightsPanel.tsx";
+import PolicyBuilderPanel from "./components/PolicyBuilderPanel.tsx";
+import RiskScoringPanel from "./components/RiskScoringPanel.tsx";
+import TroubleshooterPanel from "./components/TroubleshooterPanel.tsx";
+import PolicyDiffPanel from "./components/PolicyDiffPanel.tsx";
+import ForecastPanel from "./components/ForecastPanel.tsx";
+import QueryBuilderPanel from "./components/QueryBuilderPanel.tsx";
+import AppHealthPanel from "./components/AppHealthPanel.tsx";
+import AutopilotReadinessPanel from "./components/AutopilotReadinessPanel.tsx";
+import BaselinePanel from "./components/BaselinePanel.tsx";
+import TimelinePanel from "./components/TimelinePanel.tsx";
+import SecurityPosturePanel from "./components/SecurityPosturePanel.tsx";
+import ReportGeneratorPanel from "./components/ReportGeneratorPanel.tsx";
+import DeviceCardPanel from "./components/DeviceCardPanel.tsx";
 import { GripVertical, Shield, MessageSquare, X } from "lucide-react";
 import { useAlertStore } from "./stores/alertStore.ts";
+import { useNavigationStore } from "./stores/navigationStore.ts";
 
-type ActivePanel = "alerts" | "data" | "remediation" | "analytics" | "policies" | "logs" | "tasks" | "insights";
+type ActivePanel = "alerts" | "data" | "remediation" | "analytics" | "policies" | "policyBuilder" | "policyDiff" | "riskScores" | "troubleshooter" | "forecast" | "queryBuilder" | "appHealth" | "autopilotReadiness" | "baselines" | "timeline" | "securityPosture" | "reportGenerator" | "deviceCard" | "logs" | "tasks" | "insights";
 
 interface NavItem {
   id: ActivePanel;
@@ -20,14 +34,27 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { id: "alerts",      label: "Alerts",      section: "core" },
-  { id: "data",        label: "Data",        section: "core" },
-  { id: "policies",    label: "Policies",    section: "operations" },
-  { id: "remediation", label: "Remediation", section: "operations" },
-  { id: "logs",        label: "Logs",        section: "operations" },
-  { id: "insights",    label: "Insights",    section: "insights" },
-  { id: "tasks",       label: "Tasks",       section: "insights" },
-  { id: "analytics",   label: "Analytics",   section: "insights" },
+  { id: "alerts",             label: "Alerts",              section: "core" },
+  { id: "data",               label: "Data",                section: "core" },
+  { id: "deviceCard",          label: "Device Card",         section: "core" },
+  { id: "queryBuilder",       label: "Query Builder",       section: "core" },
+  { id: "reportGenerator",    label: "Report Generator",   section: "core" },
+  { id: "policies",           label: "Policies",            section: "operations" },
+  { id: "policyBuilder",      label: "Policy Builder",      section: "operations" },
+  { id: "policyDiff",         label: "Policy Diff",         section: "operations" },
+  { id: "remediation",        label: "Remediation",         section: "operations" },
+  { id: "troubleshooter",     label: "Troubleshooter",      section: "operations" },
+  { id: "logs",               label: "Logs",                section: "operations" },
+  { id: "insights",           label: "Insights",            section: "insights" },
+  { id: "riskScores",         label: "Risk Scores",         section: "insights" },
+  { id: "forecast",           label: "Compliance Forecast", section: "insights" },
+  { id: "securityPosture",    label: "Security Posture",    section: "insights" },
+  { id: "appHealth",          label: "App Health",           section: "insights" },
+  { id: "autopilotReadiness", label: "Autopilot Readiness", section: "insights" },
+  { id: "baselines",          label: "Config Baselines",    section: "insights" },
+  { id: "timeline",           label: "Device Timeline",     section: "insights" },
+  { id: "tasks",              label: "Tasks",               section: "insights" },
+  { id: "analytics",          label: "Analytics",           section: "insights" },
 ];
 
 const SECTION_LABELS: Record<string, string> = {
@@ -42,6 +69,16 @@ export default function App() {
   const [chatWidth, setChatWidth] = useState(28); // percentage
   const isDragging = useRef(false);
   const contentRef = useRef<HTMLDivElement>(null);
+
+  // Listen for device card navigation requests
+  const deviceCardTarget = useNavigationStore((s) => s.deviceCardTarget);
+  const pendingNavigation = useNavigationStore((s) => s.pendingNavigation);
+
+  useEffect(() => {
+    if (pendingNavigation) {
+      setActivePanel(pendingNavigation.panel as ActivePanel);
+    }
+  }, [pendingNavigation]);
 
   const unacknowledgedCount = useAlertStore(
     (s) => s.alerts.filter((a) => !a.acknowledged).length
@@ -90,7 +127,7 @@ export default function App() {
             <span className="text-sm font-bold text-white tracking-tight">
               Intune<span className="text-brand-400">007</span>
             </span>
-            <p className="text-[10px] text-gray-500 leading-tight">Security Copilot</p>
+            <p className="text-[10px] text-gray-500 leading-tight">License to Manage!</p>
           </div>
         </div>
 
@@ -129,7 +166,7 @@ export default function App() {
           ))}
         </div>
 
-        {/* Copilot toggle at bottom */}
+        {/* Agent toggle at bottom */}
         <div className="px-3 pb-3">
           <button
             onClick={() => setChatOpen(!chatOpen)}
@@ -161,6 +198,32 @@ export default function App() {
             <AnalyticsPanel />
           ) : activePanel === "policies" ? (
             <PolicyAnalyzerPanel />
+          ) : activePanel === "policyBuilder" ? (
+            <PolicyBuilderPanel />
+          ) : activePanel === "policyDiff" ? (
+            <PolicyDiffPanel />
+          ) : activePanel === "riskScores" ? (
+            <RiskScoringPanel />
+          ) : activePanel === "troubleshooter" ? (
+            <TroubleshooterPanel />
+          ) : activePanel === "forecast" ? (
+            <ForecastPanel />
+          ) : activePanel === "queryBuilder" ? (
+            <QueryBuilderPanel />
+          ) : activePanel === "appHealth" ? (
+            <AppHealthPanel />
+          ) : activePanel === "autopilotReadiness" ? (
+            <AutopilotReadinessPanel />
+          ) : activePanel === "baselines" ? (
+            <BaselinePanel />
+          ) : activePanel === "timeline" ? (
+            <TimelinePanel />
+          ) : activePanel === "securityPosture" ? (
+            <SecurityPosturePanel />
+          ) : activePanel === "reportGenerator" ? (
+            <ReportGeneratorPanel />
+          ) : activePanel === "deviceCard" ? (
+            <DeviceCardPanel />
           ) : activePanel === "logs" ? (
             <LogViewerPanel />
           ) : activePanel === "tasks" ? (

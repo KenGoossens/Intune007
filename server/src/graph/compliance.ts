@@ -4,8 +4,11 @@ import type {
   ComplianceStatusInfo,
 } from "@intune-agent/shared";
 
+const BETA_BASE = "https://graph.microsoft.com/beta";
+
 /**
  * List device compliance policies.
+ * Uses beta API for richer policy data including platform type and assignment info.
  */
 export async function getCompliancePolicies(options?: {
   filter?: string;
@@ -14,7 +17,7 @@ export async function getCompliancePolicies(options?: {
   const client = getGraphClient();
   return fetchWithPagination<CompliancePolicyInfo>(
     client,
-    "/deviceManagement/deviceCompliancePolicies",
+    `${BETA_BASE}/deviceManagement/deviceCompliancePolicies`,
     {
       filter: options?.filter,
       select: "id,displayName,description,createdDateTime,lastModifiedDateTime",
@@ -25,11 +28,12 @@ export async function getCompliancePolicies(options?: {
 
 /**
  * Get the overall device compliance status summary.
+ * Uses beta for more detailed breakdown.
  */
 export async function getComplianceStatus(): Promise<ComplianceStatusInfo> {
   const client = getGraphClient();
   const summary = await client
-    .api("/deviceManagement/deviceCompliancePolicyDeviceStateSummary")
+    .api(`${BETA_BASE}/deviceManagement/deviceCompliancePolicyDeviceStateSummary`)
     .get();
 
   return {

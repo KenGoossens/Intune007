@@ -1,16 +1,23 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import {
   Send,
   Loader2,
   Trash2,
+  ThumbsUp,
+  ThumbsDown,
   Bot,
   User,
   Search,
   X,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { useChatStore } from "../stores/chatStore.ts";
+import { formatToolTitle } from "@intune-agent/shared";
 import { useAgentStream } from "../hooks/useAgentStream.ts";
+import { useNavigationStore } from "../stores/navigationStore.ts";
 
 export default function ChatPanel({ onClose }: { onClose?: () => void }) {
   const [input, setInput] = useState("");
@@ -19,6 +26,19 @@ export default function ChatPanel({ onClose }: { onClose?: () => void }) {
 
   const { messages, isStreaming, activeToolCall, clearChat } = useChatStore();
   const { sendMessage } = useAgentStream();
+
+  // Auto-execute queries from cross-panel navigation
+  const pendingNav = useNavigationStore((s) => s.pendingNavigation);
+  const clearNavigation = useNavigationStore((s) => s.clearNavigation);
+
+  useEffect(() => {
+    if (pendingNav?.query && !isStreaming) {
+      const query = pendingNav.query;
+      clearNavigation();
+      // Small delay to let panel switch render first
+      setTimeout(() => sendMessage(query), 150);
+    }
+  }, [pendingNav, isStreaming, clearNavigation, sendMessage]);
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -131,7 +151,41 @@ export default function ChatPanel({ onClose }: { onClose?: () => void }) {
                 <div className="whitespace-pre-wrap">{msg.content}</div>
               ) : (
                 <div className="chat-markdown">
-                  <ReactMarkdown>{msg.content}</ReactMarkdown>
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      code({ className, children, ...props }) {
+                        const match = /language-(\w+)/.exec(className || "");
+                        const codeString = String(children).replace(/\n$/, "");
+                        // Heuristic: if no language tag but looks like PowerShell, highlight as powershell
+                        const lang = match?.[1] || (looksLikePowerShell(codeString) ? "powershell" : "");
+                        if (lang || codeString.includes("\n")) {
+                          return (
+                            <SyntaxHighlighter
+                              style={oneDark}
+                              language={lang || "text"}
+                              PreTag="div"
+                              customStyle={{
+                                margin: "0.5em 0",
+                                borderRadius: "8px",
+                                fontSize: "0.8em",
+                                border: "1px solid #374151",
+                              }}
+                            >
+                              {codeString}
+                            </SyntaxHighlighter>
+                          );
+                        }
+                        return (
+                          <code className={className} {...props}>
+                            {children}
+                          </code>
+                        );
+                      },
+                    }}
+                  >
+                    {msg.content}
+                  </ReactMarkdown>
                 </div>
               )}
             </div>
@@ -139,6 +193,9 @@ export default function ChatPanel({ onClose }: { onClose?: () => void }) {
               <div className="w-7 h-7 bg-gray-700 rounded-lg flex items-center justify-center shrink-0 mt-0.5">
                 <User size={14} />
               </div>
+            )}
+            {msg.role === "assistant" && msg.content && (
+              <FeedbackButtons messageIndex={i} />
             )}
           </div>
         ))}
@@ -154,7 +211,7 @@ export default function ChatPanel({ onClose }: { onClose?: () => void }) {
               <span>
                 Querying{" "}
                 <span className="text-brand-400 font-medium">
-                  {formatToolName(activeToolCall)}
+                  {formatToolTitle(activeToolCall)}
                 </span>
                 ...
               </span>
@@ -209,9 +266,80 @@ export default function ChatPanel({ onClose }: { onClose?: () => void }) {
   );
 }
 
-function formatToolName(toolName: string): string {
-  return toolName
-    .replace(/^get_/, "")
-    .replace(/_/g, " ")
-    .replace(/\b\w/g, (c) => c.toUpperCase());
+// formatToolName removed — using shared formatToolTitle instead
+
+function looksLikePowerShell(code: string): boolean {
+  const indicators = [
+    /\$\w+/,                          // $variables
+    /\b(Get-|Set-|New-|Remove-|Start-|Stop-|Test-|Write-|Import-|Export-)/i,  // cmdlets
+    /\b(try|catch|finally|param|function|if|else|foreach|ForEach-Object)\b/,
+    /\bWrite-(Host|Output|Error|Warning|Verbose)\b/i,
+    /\$ErrorActionPreference/,
+    /\bexit\s+[01]\b/,
+    /\b(Invoke-|Select-Object|Where-Object|Out-Null)\b/i,
+    /\[string\]|\[int\]|\[bool\]/,
+  ];
+  return indicators.some((re) => re.test(code));
+}
+
+/** Thumbs up / thumbs down feedback buttons for agent responses */
+function FeedbackButtons({ messageIndex }: { messageIndex: number }) {
+  const [feedback, setFeedback] = useState<1 | -1 | null>(null);
+  const [sending, setSending] = useState(false);
+
+  const sendFeedback = useCallback(async (score: 1 | -1) => {
+    if (feedback !== null || sending) return;
+    setSending(true);
+    try {
+      await fetch("http://localhost:3001/api/learning/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ score }),
+      });
+      setFeedback(score);
+    } catch {
+      // silently fail
+    } finally {
+      setSending(false);
+    }
+  }, [feedback, sending]);
+
+  return (
+    <div className="flex items-center gap-1 mt-1 self-start ml-10">
+      <button
+        onClick={() => sendFeedback(1)}
+        disabled={feedback !== null || sending}
+        className={`p-1 rounded transition-all ${
+          feedback === 1
+            ? "text-green-400"
+            : feedback === null
+            ? "text-gray-600 hover:text-green-400 hover:bg-gray-800"
+            : "text-gray-700 cursor-default"
+        }`}
+        title="Good response"
+      >
+        <ThumbsUp size={13} />
+      </button>
+      <button
+        onClick={() => sendFeedback(-1)}
+        disabled={feedback !== null || sending}
+        className={`p-1 rounded transition-all ${
+          feedback === -1
+            ? "text-red-400"
+            : feedback === null
+            ? "text-gray-600 hover:text-red-400 hover:bg-gray-800"
+            : "text-gray-700 cursor-default"
+        }`}
+        title="Bad response"
+      >
+        <ThumbsDown size={13} />
+      </button>
+      {feedback === 1 && (
+        <span className="text-[10px] text-green-500 ml-1">Learned!</span>
+      )}
+      {feedback === -1 && (
+        <span className="text-[10px] text-gray-500 ml-1">Noted</span>
+      )}
+    </div>
+  );
 }

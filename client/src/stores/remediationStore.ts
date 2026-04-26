@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 
 export interface GeneratedScript {
   displayName: string;
@@ -37,7 +38,9 @@ interface RemediationState {
   clearDeployResult: () => void;
 }
 
-export const useRemediationStore = create<RemediationState>((set, get) => ({
+export const useRemediationStore = create<RemediationState>()(
+  persist(
+    (set, get) => ({
   generatedScripts: [],
   currentScript: null,
   isGenerating: false,
@@ -134,4 +137,13 @@ export const useRemediationStore = create<RemediationState>((set, get) => ({
 
   setCurrentScript: (script) => set({ currentScript: script, deployResult: null }),
   clearDeployResult: () => set({ deployResult: null }),
-}));
+    }),
+    {
+      name: "intune007-remediation",
+      partialize: (state) => ({
+        generatedScripts: state.generatedScripts,
+        currentScript: state.currentScript,
+      }),
+    }
+  )
+);

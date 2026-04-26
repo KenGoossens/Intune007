@@ -1,7 +1,8 @@
 import { Router, type Request, type Response } from "express";
 import { runAgentLoop } from "../agent/agent.js";
-import type { ChatRequest } from "@intune-agent/shared";
+import type { ChatRequest, ChatMessage } from "@intune-agent/shared";
 import type { ToolResult } from "../agent/executor.js";
+import { validateChatInput, sanitizeErrorMessage } from "../security.js";
 
 const router = Router();
 
@@ -25,19 +26,21 @@ interface CollectedToolResult {
  * }
  */
 router.post("/", async (req: Request, res: Response) => {
-  const { message, history } = req.body as ChatRequest;
-
-  if (!message || typeof message !== "string") {
-    res.status(400).json({ error: "Missing or invalid 'message' field" });
+  // Validate and sanitize input
+  const validation = validateChatInput(req.body);
+  if ("error" in validation) {
+    res.status(400).json({ error: validation.error });
     return;
   }
+
+  const { message, history } = validation;
 
   const toolResults: CollectedToolResult[] = [];
   let finalResponse = "";
   let agentError: string | null = null;
 
   try {
-    await runAgentLoop(message, history || [], {
+    await runAgentLoop(message, (history || []) as ChatMessage[], {
       onToolCall(name: string, _args: Record<string, unknown>) {
         console.log(`[Route] Tool call: ${name}`);
       },
@@ -70,9 +73,9 @@ router.post("/", async (req: Request, res: Response) => {
     const errMsg = err instanceof Error ? err.message : String(err);
     console.error("[Route] Unhandled error:", errMsg);
     res.status(500).json({
-      response: `Error: ${errMsg}`,
+      response: "An error occurred processing your request.",
       toolResults,
-      error: errMsg,
+      error: sanitizeErrorMessage(errMsg),
     });
   }
 });
