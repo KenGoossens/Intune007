@@ -19,7 +19,10 @@ export type TargetPanel =
   | "timeline"
   | "riskScores"
   | "queryBuilder"
-  | "logs";
+  | "logs"
+  | "forecast"
+  | "analytics"
+  | "insights";
 
 export interface NavigationContext {
   /** Which panel to navigate to */

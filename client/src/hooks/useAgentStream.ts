@@ -1,6 +1,25 @@
 import { useCallback, useRef } from "react";
 import { useChatStore } from "../stores/chatStore.ts";
 import { useActivityStore } from "../stores/activityStore.ts";
+import { useNavigationStore, type TargetPanel } from "../stores/navigationStore.ts";
+
+/**
+ * Map of tool names to the panel they should auto-navigate to.
+ * When the agent calls one of these tools, the UI navigates to the panel
+ * so the user sees both the text AND visual output.
+ */
+const TOOL_PANEL_MAP: Record<string, { panel: TargetPanel; deviceNameArg?: string }> = {
+  get_device_timeline: { panel: "timeline", deviceNameArg: "deviceName" },
+  run_troubleshooter: { panel: "troubleshooter", deviceNameArg: "deviceName" },
+  get_device_card: { panel: "deviceCard", deviceNameArg: "deviceName" },
+  check_autopilot_readiness: { panel: "autopilotReadiness" },
+  get_security_posture: { panel: "securityPosture" },
+  get_app_health: { panel: "appHealth" },
+  get_device_risk_scores: { panel: "riskScores" },
+  run_compliance_forecast: { panel: "forecast" },
+  analyze_policies: { panel: "policies" },
+  get_learning_stats: { panel: "analytics" },
+};
 
 interface ChatApiResponse {
   response: string;
@@ -53,7 +72,8 @@ export function useAgentStream() {
 
       const data: ChatApiResponse = await response.json();
 
-      // Add tool result panels
+      // Add tool result panels + auto-navigate to relevant panel
+      let navigated = false;
       for (const toolResult of data.toolResults) {
         if (toolResult.data && toolResult.data.length > 0) {
           addDataPanel(
@@ -61,6 +81,24 @@ export function useAgentStream() {
             toolResult.data,
             toolResult.totalCount
           );
+
+          // Auto-navigate to the visual panel for this tool
+          if (!navigated) {
+            const mapping = TOOL_PANEL_MAP[toolResult.name];
+            if (mapping) {
+              // Try to extract device name from result data
+              let deviceName: string | undefined;
+              if (mapping.deviceNameArg) {
+                const firstRow = toolResult.data[0] as Record<string, unknown> | undefined;
+                deviceName = firstRow
+                  ? String(firstRow.deviceName || firstRow.device_name || firstRow.name || "")
+                  : undefined;
+                if (deviceName === "" || deviceName === "undefined") deviceName = undefined;
+              }
+              useNavigationStore.getState().navigateTo(mapping.panel, { deviceName });
+              navigated = true;
+            }
+          }
         }
       }
 
