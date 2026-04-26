@@ -31,21 +31,37 @@ router.post("/", async (req: Request, res: Response) => {
       timeline.push({ date: String(device.enrolledDateTime), event: "Device enrolled in Intune", category: "enrollment" });
     }
 
-    // Config states
+    // Config states — deduplicate by displayName (API returns one per setting)
     try {
       const configs = await fetchWithPagination<Record<string, unknown>>(client,
         `/deviceManagement/managedDevices/${device.id}/deviceConfigurationStates`, { maxItems: 50 });
+      const seen = new Map<string, Record<string, unknown>>();
       for (const c of configs.items) {
-        timeline.push({ date: String(c.lastModifiedDateTime || device.enrolledDateTime || ""), event: `Config profile: ${c.displayName} — ${c.state}`, category: "configuration", details: c });
+        const key = `${c.displayName}|${c.state}`;
+        const existing = seen.get(key);
+        if (!existing || String(c.lastModifiedDateTime || "") > String(existing.lastModifiedDateTime || "")) {
+          seen.set(key, c);
+        }
+      }
+      for (const c of seen.values()) {
+        timeline.push({ date: String(c.lastModifiedDateTime || device.enrolledDateTime || ""), event: `Config profile: ${c.displayName} — ${c.state}`, category: "configuration" });
       }
     } catch { /* skip */ }
 
-    // Compliance states
+    // Compliance states — deduplicate by displayName
     try {
       const comp = await fetchWithPagination<Record<string, unknown>>(client,
         `/deviceManagement/managedDevices/${device.id}/deviceCompliancePolicyStates`, { maxItems: 50 });
+      const seen = new Map<string, Record<string, unknown>>();
       for (const c of comp.items) {
-        timeline.push({ date: String(c.lastModifiedDateTime || ""), event: `Compliance: ${c.displayName} — ${c.state}`, category: "compliance", details: c });
+        const key = `${c.displayName}|${c.state}`;
+        const existing = seen.get(key);
+        if (!existing || String(c.lastModifiedDateTime || "") > String(existing.lastModifiedDateTime || "")) {
+          seen.set(key, c);
+        }
+      }
+      for (const c of seen.values()) {
+        timeline.push({ date: String(c.lastModifiedDateTime || ""), event: `Compliance: ${c.displayName} — ${c.state}`, category: "compliance" });
       }
     } catch { /* skip */ }
 
