@@ -158,18 +158,24 @@ Add these **Application** permissions and grant admin consent:
 
 | Permission | Type | For |
 |---|---|---|
-| `DeviceManagementManagedDevices.ReadWrite.All` | Application | Devices, actions, diagnostics |
-| `DeviceManagementConfiguration.ReadWrite.All` | Application | Policies, profiles, baselines |
-| `DeviceManagementApps.ReadWrite.All` | Application | Apps, icons, assignments |
-| `DeviceManagementServiceConfig.ReadWrite.All` | Application | Autopilot, enrollment |
-| `DeviceManagementRBAC.Read.All` | Application | Role-based access |
-| `Directory.Read.All` | Application | Groups, users, devices |
-| `Group.ReadWrite.All` | Application | Group management |
-| `AuditLog.Read.All` | Application | Sign-in and audit logs |
-| `SecurityEvents.Read.All` | Application | Security alerts |
-| `BitlockerKey.Read.All` | Application | BitLocker recovery keys |
-| `Policy.Read.All` | Application | Conditional Access |
-| `Policy.ReadWrite.ConditionalAccess` | Application | CA policy updates |
+| `DeviceManagementManagedDevices.ReadWrite.All` | Application | Device queries, actions (sync, restart, lock), diagnostic logs |
+| `DeviceManagementManagedDevices.PrivilegedOperations.All` | Application | Destructive actions: retire, wipe |
+| `DeviceManagementConfiguration.ReadWrite.All` | Application | Compliance policies, config profiles, Proactive Remediations, update rings |
+| `DeviceManagementApps.ReadWrite.All` | Application | Mobile apps, app icons, assignments, install status |
+| `DeviceManagementServiceConfig.ReadWrite.All` | Application | Autopilot devices, profiles, hardware hash import, enrollment |
+| `DeviceManagementRBAC.Read.All` | Application | Role-based access control |
+| `Directory.Read.All` | Application | Users, directory objects |
+| `Device.Read.All` | Application | Azure AD device objects (Autopilot group assignment) |
+| `Group.ReadWrite.All` | Application | Create groups, list groups |
+| `GroupMember.ReadWrite.All` | Application | Add/remove group members |
+| `AuditLog.Read.All` | Application | Sign-in logs, directory audit logs |
+| `SecurityEvents.Read.All` | Application | Microsoft Defender security alerts |
+| `BitlockerKey.Read.All` | Application | BitLocker recovery key values |
+| `BitlockerKey.ReadBasic.All` | Application | BitLocker recovery key metadata |
+| `Policy.Read.All` | Application | Conditional Access policies (read) |
+| `Policy.ReadWrite.ConditionalAccess` | Application | Conditional Access policy updates |
+
+> **Important:** After adding permissions, click **"Grant admin consent for [your tenant]"** — permissions won't work without admin consent.
 
 ---
 
