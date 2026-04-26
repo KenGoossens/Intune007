@@ -1464,4 +1464,83 @@ export const agentTools: ChatCompletionTool[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "get_cve_status",
+      description:
+        "Get the current CVE vulnerability monitoring status — how many CVEs are tracked, how many are new/critical/exploited, when the last scan ran. Use this when the user asks about vulnerabilities, CVEs, security threats, or patch status.",
+      parameters: {
+        type: "object",
+        properties: {},
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_cve_list",
+      description:
+        "Get the list of tracked CVE vulnerabilities relevant to this Intune environment. Can filter by status (new, reviewed, remediated, dismissed) and severity (critical, high, medium, low). Returns CVE details including remediation suggestions.",
+      parameters: {
+        type: "object",
+        properties: {
+          status: {
+            type: "string",
+            description: "Filter by status: new, reviewed, remediated, dismissed",
+          },
+          severity: {
+            type: "string",
+            description: "Filter by severity: critical, high, medium, low",
+          },
+          limit: {
+            type: "number",
+            description: "Maximum number of CVEs to return (default 20)",
+          },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "scan_cves",
+      description:
+        "Trigger a manual CVE vulnerability scan. Fetches latest CVEs from NVD (NIST) and CISA Known Exploited Vulnerabilities catalog, matches them against your Intune devices and apps, scores relevance, and generates AI remediation suggestions. Use when the user asks to check for new vulnerabilities or wants a fresh scan.",
+      parameters: {
+        type: "object",
+        properties: {
+          daysBack: {
+            type: "number",
+            description: "How many days back to check for CVEs (default 7)",
+          },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "update_cve_status",
+      description:
+        "Update the status of a CVE vulnerability. Mark it as reviewed (acknowledged), remediated (fixed), or dismissed (not applicable). Use after the user has addressed a CVE.",
+      parameters: {
+        type: "object",
+        properties: {
+          cveId: {
+            type: "string",
+            description: "The CVE ID (e.g., CVE-2024-1234)",
+          },
+          status: {
+            type: "string",
+            description: "New status: reviewed, remediated, or dismissed",
+          },
+        },
+        required: ["cveId", "status"],
+      },
+    },
+  },
 ];

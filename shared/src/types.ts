@@ -166,6 +166,10 @@ export const TOOL_TO_PANEL_TYPE: Record<string, DataPanelType> = {
   remove_app: "mobile_apps",
   rename_app: "mobile_apps",
   bulk_rename_apps: "mobile_apps",
+  get_cve_status: "security_alerts",
+  get_cve_list: "security_alerts",
+  scan_cves: "security_alerts",
+  update_cve_status: "security_alerts",
 };
 
 export const TOOL_TO_PANEL_TITLE: Record<string, string> = {
@@ -238,6 +242,10 @@ export const TOOL_TO_PANEL_TITLE: Record<string, string> = {
   remove_app: "App Removal",
   rename_app: "App Renamed",
   bulk_rename_apps: "Bulk App Rename",
+  get_cve_status: "CVE Monitor Status",
+  get_cve_list: "CVE Vulnerabilities",
+  scan_cves: "CVE Scan Results",
+  update_cve_status: "CVE Status Update",
 };
 
 /**

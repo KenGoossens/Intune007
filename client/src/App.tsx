@@ -21,6 +21,7 @@ import TimelinePanel from "./components/TimelinePanel.tsx";
 import SecurityPosturePanel from "./components/SecurityPosturePanel.tsx";
 import ReportGeneratorPanel from "./components/ReportGeneratorPanel.tsx";
 import DeviceCardPanel from "./components/DeviceCardPanel.tsx";
+import CVEMonitorPanel from "./components/CVEMonitorPanel.tsx";
 import SparkleOverlay from "./components/SparkleOverlay.tsx";
 import { GripVertical, Shield, MessageSquare, X } from "lucide-react";
 import { useAlertStore } from "./stores/alertStore.ts";
@@ -28,7 +29,7 @@ import { useNavigationStore } from "./stores/navigationStore.ts";
 import { useChatStore } from "./stores/chatStore.ts";
 import { useActivityStore } from "./stores/activityStore.ts";
 
-type ActivePanel = "alerts" | "data" | "remediation" | "analytics" | "policies" | "policyBuilder" | "policyDiff" | "riskScores" | "troubleshooter" | "forecast" | "queryBuilder" | "appHealth" | "autopilotReadiness" | "baselines" | "timeline" | "securityPosture" | "reportGenerator" | "deviceCard" | "logs" | "tasks" | "insights";
+type ActivePanel = "alerts" | "data" | "remediation" | "analytics" | "policies" | "policyBuilder" | "policyDiff" | "riskScores" | "troubleshooter" | "forecast" | "queryBuilder" | "appHealth" | "autopilotReadiness" | "baselines" | "timeline" | "securityPosture" | "reportGenerator" | "deviceCard" | "cveMonitor" | "logs" | "tasks" | "insights";
 
 interface NavItem {
   id: ActivePanel;
@@ -52,6 +53,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: "riskScores",         label: "Risk Scores",         section: "insights" },
   { id: "forecast",           label: "Compliance Forecast", section: "insights" },
   { id: "securityPosture",    label: "Security Posture",    section: "insights" },
+  { id: "cveMonitor",         label: "CVE Monitor",         section: "insights" },
   { id: "appHealth",          label: "App Health",           section: "insights" },
   { id: "autopilotReadiness", label: "Autopilot Readiness", section: "insights" },
   { id: "baselines",          label: "Config Baselines",    section: "insights" },
@@ -229,6 +231,8 @@ export default function App() {
             <TimelinePanel />
           ) : activePanel === "securityPosture" ? (
             <SecurityPosturePanel />
+          ) : activePanel === "cveMonitor" ? (
+            <CVEMonitorPanel />
           ) : activePanel === "reportGenerator" ? (
             <ReportGeneratorPanel />
           ) : activePanel === "deviceCard" ? (

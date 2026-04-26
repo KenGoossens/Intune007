@@ -31,8 +31,10 @@ import reportGeneratorRouter from "./routes/reportGenerator.js";
 import deviceCardRouter from "./routes/deviceCard.js";
 import learningRouter from "./routes/learning.js";
 import docsRouter from "./routes/docs.js";
+import cveRouter from "./routes/cve.js";
 import { alertScheduler } from "./alerts/scheduler.js";
 import { startTaskScheduler } from "./scheduler/taskScheduler.js";
+import { startCVEScheduler } from "./cve/scheduler.js";
 
 const app = express();
 
@@ -109,6 +111,7 @@ app.use("/api/report-generator", reportGeneratorRouter);
 app.use("/api/device-card", deviceCardRouter);
 app.use("/api/learning", learningRouter);
 app.use("/api/docs", docsRouter);
+app.use("/api/cve", cveRouter);
 
 // Health check
 app.get("/api/health", (_req, res) => {
@@ -129,4 +132,7 @@ app.listen(config.port, () => {
 
   // Start task scheduler for recurring agent jobs
   startTaskScheduler();
+
+  // Start CVE vulnerability monitor (scans every 6 hours)
+  startCVEScheduler();
 });

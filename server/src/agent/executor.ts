@@ -71,6 +71,7 @@ import { sanitizeOData, isValidUUID, scanPowerShellScript, sanitizeErrorMessage 
 import { getLearningStats, recordCorrection } from "./learningEngine.js";
 import { findAndUploadIcon, fixAllMissingIcons, scanAppIcons } from "../graph/appIcons.js";
 import { removeApp, renameApp, bulkRenameApps } from "../graph/appManagement.js";
+import { runCVEScan, getCVEs, getCVEStats, updateCVEStatus } from "../cve/monitor.js";
 
 export interface ToolResult {
   data: unknown[];
@@ -722,6 +723,47 @@ export async function executeTool(
           data: rows.length > 0 ? rows : [{ oldName: "—", newName: "—", status: `No apps found containing "${args.search}"`, error: "" }],
           totalCount: result.matchedApps,
         };
+      }
+
+      case "get_cve_status": {
+        const stats = getCVEStats();
+        return { data: [stats], totalCount: 1 };
+      }
+
+      case "get_cve_list": {
+        const cves = getCVEs({ status: args.status, severity: args.severity, limit: args.limit || 20 });
+        const rows = cves.map((c) => ({
+          cveId: c.cveId,
+          severity: c.severity,
+          cvssScore: c.cvssScore,
+          title: c.title,
+          relevance: `${c.relevanceScore}%`,
+          devices: c.affectedDeviceCount,
+          exploited: c.isExploited ? "⚠️ YES" : "No",
+          remediation: c.remediation?.substring(0, 100) || "—",
+          type: c.remediationType || "—",
+          status: c.status,
+        }));
+        return { data: rows.length > 0 ? rows : [{ cveId: "No CVEs found", severity: "", remediation: "Run a scan first" }], totalCount: rows.length };
+      }
+
+      case "scan_cves": {
+        const result = await runCVEScan(args.daysBack || 7);
+        const rows = result.newCves.map((c) => ({
+          cveId: c.cveId,
+          severity: c.severity,
+          cvssScore: c.cvssScore,
+          relevance: `${c.relevanceScore}%`,
+          devices: c.affectedDeviceCount,
+          exploited: c.isExploited ? "⚠️ ACTIVELY EXPLOITED" : "No",
+          remediation: c.remediation?.substring(0, 150) || "—",
+        }));
+        return { data: rows.length > 0 ? rows : [{ cveId: "No new relevant CVEs found", severity: "—", remediation: "All clear!" }], totalCount: result.totalCvesFound };
+      }
+
+      case "update_cve_status": {
+        updateCVEStatus(args.cveId, args.status);
+        return { data: [{ cveId: args.cveId, status: args.status, message: `CVE ${args.cveId} marked as ${args.status}` }], totalCount: 1 };
       }
 
       default:
