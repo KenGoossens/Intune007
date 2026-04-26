@@ -1,6 +1,6 @@
 # Intune007 — License to Manage!
 
-**AI-powered Microsoft Intune management platform** with a conversational agent, 68 tools, 29 interactive UI panels, and full Microsoft Graph API integration.
+**AI-powered Microsoft Intune management platform** with a conversational agent, 69 tools, 30 interactive UI panels, RAG-powered documentation search, and full Microsoft Graph API integration.
 
 ---
 
@@ -19,6 +19,7 @@
 - [API Endpoints](#api-endpoints)
 - [Security](#security)
 - [Self-Improving Agent](#self-improving-agent)
+- [RAG Documentation Engine](#rag-documentation-engine)
 - [Cross-Panel Interactivity](#cross-panel-interactivity)
 - [Troubleshooting](#troubleshooting)
 
@@ -26,15 +27,17 @@
 
 ## Overview
 
-Intune007 is a full-stack application that connects to Microsoft Intune via the Microsoft Graph API. IT administrators interact through either a **conversational AI agent** (right-docked chat panel) or **29 dedicated dashboard panels** — all fully interactive and interconnected.
+Intune007 is a full-stack application that connects to Microsoft Intune via the Microsoft Graph API. IT administrators interact through either a **conversational AI agent** (right-docked chat panel) or **30 dedicated dashboard panels** — all fully interactive and interconnected. The agent is powered by comprehensive Intune domain knowledge and RAG-based documentation search from learn.microsoft.com.
 
 **Key stats:**
-- 68 agent tools (device management, compliance, apps, security, Autopilot, remediation)
-- 29 UI panels with cross-panel navigation and drill-down
-- 26 API routes
-- 6 SQLite databases (analytics, history, memory, tasks, learning, baselines)
-- 116 TypeScript source files
+- 69 agent tools (device management, compliance, apps, security, Autopilot, remediation)
+- 30 UI panels with cross-panel navigation, drill-down, and auto-execution
+- 27 API routes
+- 7 SQLite databases (analytics, history, memory, tasks, learning, baselines, docs)
+- 121 TypeScript source files
+- RAG engine indexing 45+ Microsoft Learn documentation pages
 - OWASP-hardened security (rate limiting, input validation, OData injection prevention, prompt injection defense)
+- Golden sparkle particle effects during all agentic operations
 
 ---
 
@@ -68,8 +71,10 @@ Intune007 is a full-stack application that connects to Microsoft Intune via the 
 | **Server** | Express, TypeScript (tsx watch), Azure OpenAI SDK, better-sqlite3 |
 | **Shared** | TypeScript types, tool title mappings (npm workspace) |
 | **AI** | Azure OpenAI (GPT-4o / GPT-5.3-chat), function calling with 68 tools |
-| **Data** | Microsoft Graph API (beta), 6 SQLite databases (auto-created) |
+| **Data** | Microsoft Graph API (beta), 7 SQLite databases (auto-created) |
 | **Security** | Helmet, express-rate-limit, OData sanitization, prompt injection defense, PowerShell script scanning |
+| **RAG** | Documentation search: 45+ learn.microsoft.com pages indexed with Azure OpenAI embeddings |
+| **UX** | Gold 007 branding, golden sparkle particle effects during agent operations |
 | **Optional** | Azure Functions for Autopilot hardware hash ingestion from bare-metal devices |
 
 ---
@@ -93,7 +98,7 @@ Intune007 is a full-stack application that connects to Microsoft Intune via the 
 | **Policies** | Policy Analyzer with health score (0-100), clickable severity filtering (Critical/Warning/Info/Good), affected items drill-down, action buttons (Remediate, Build Policy, Troubleshoot, View Posture). Stats link to their respective panels. |
 | **Policy Builder** | Describe a policy in plain English → AI generates valid Intune policy JSON with 8 security benchmark overlays (CIS L1/L2, NIST, ISO 27001, HIPAA, Essential Eight, Zero Trust, STIG). Deploy to Intune with one click. |
 | **Policy Diff** | Compare two policy configurations side-by-side. |
-| **Remediation** | AI-generated PowerShell Proactive Remediation scripts (detection + remediation). Quick templates for common fixes. Deploy to Intune directly. Scripts scanned for 15 dangerous patterns before deployment. |
+| **Remediation** | AI-generated PowerShell Proactive Remediation scripts (detection + remediation). Quick templates for common fixes. Deploy to Intune directly. Scripts scanned for 15 dangerous patterns before deployment. **Existing scripts: expand to view code, inline editing with live save back to Intune, delete from Intune with confirmation.** |
 | **Troubleshooter** | 7-step automated diagnostic with SSE streaming: resolve device → compliance → config profiles → app installs → group membership → sync status → AI root cause analysis. Auto-executes when navigated to with a device name. |
 | **Logs** | Intune audit logs, Azure AD sign-in logs, directory audit logs with filtering and export. |
 
@@ -105,7 +110,7 @@ Intune007 is a full-stack application that connects to Microsoft Intune via the 
 | **Risk Scores** | Fleet-wide device risk scoring (0-100) based on compliance, sync age, encryption, OS version, config conflicts. |
 | **Compliance Forecast** | Predict compliance impact of new policy requirements before deploying. |
 | **Security Posture** | Overall security score with compliance rate, encryption rate, stale device rate. Trend charts, device breakdowns with clickable device names, Troubleshoot and Timeline links per device. |
-| **App Health** | App deployment health with real app icons from Intune, detection rates, per-device version tracking. Inline actions: delete app (assignments removed first), find/refresh icon (7-source search with SSE progress + PNG conversion + upload to Intune), filter by All/Detected/Not Detected. |
+| **App Health** | App deployment health with real app icons from Intune, detection rates, per-device version tracking. Inline actions: delete app (assignments removed first), find/refresh icon (7-source search with SSE progress + PNG conversion + upload to Intune), filter by All/Detected/Not Detected. **Scan for missing icons (accurate per-app check), bulk rename apps.** |
 | **Autopilot Readiness** | Check readiness by serial number, auto-remediate (group tag, profile assignment), full onboarding pipeline (hash import → processing → group tag → group membership → profile verification). Three collection methods: Azure Function for bare-metal, Proactive Remediation for enrolled devices, CSV import. |
 | **Config Baselines** | Snapshot current configuration state, compare against baselines, detect drift. |
 | **Device Timeline** | Full lifecycle timeline: enrollment, compliance changes, config assignments, sync events. Auto-executes when navigated to with a device name. |
@@ -116,12 +121,15 @@ Intune007 is a full-stack application that connects to Microsoft Intune via the 
 
 | Capability | Details |
 |---|---|
-| **68 Function-calling tools** | Full Intune management: devices, apps, policies, groups, security, Autopilot, remediation, reporting |
+| **69 Function-calling tools** | Full Intune management: devices, apps, policies, groups, security, Autopilot, remediation, reporting |
+| **RAG documentation search** | 45+ learn.microsoft.com pages indexed with embeddings, relevant docs injected into agent context per query |
+| **Deep Intune expertise** | 120+ lines of domain knowledge covering 15 areas: licensing, enrollment, compliance, Autopilot, Conditional Access, troubleshooting, Graph API, error codes |
+| **Auto-panel navigation** | When agent calls a tool with a visual panel (timeline, troubleshooter, device card, etc.), the UI auto-navigates to show both text AND visual output |
 | **Self-improving** | Learning engine with few-shot exemplars, tool chain pattern learning, correction memory, user feedback (👍/👎) |
 | **Tool name confidentiality** | Agent describes capabilities in plain language, never exposes internal function names to users |
 | **Safety guardrails** | Destructive actions require user confirmation; PowerShell scripts scanned before deployment; input validation on all tool arguments |
 | **Cross-panel navigation** | Clicking data elements triggers panel switches with auto-execution |
-| **App management** | Search/fix/refresh app icons (7 sources with PNG conversion via sharp), remove apps (assignments cleared first), bulk rename apps (find-and-replace across all app names) |
+| **App management** | Search/fix/refresh app icons (7 sources with PNG conversion via sharp), remove apps (assignments cleared first), bulk rename apps (find-and-replace across all app names), scan for missing icons |
 | **Sync-then-reboot** | Restart command sends a sync first so the device picks up the reboot immediately |
 
 ---
@@ -210,6 +218,12 @@ AZURE_CLIENT_SECRET=your-client-secret
 # Optional
 CORS_ORIGIN=http://localhost:5173
 PORT=3001
+
+# RAG Documentation (optional — enables doc search)
+AZURE_OPENAI_EMBEDDING_DEPLOYMENT=text-embedding-ada-002
+AZURE_OPENAI_EMBEDDING_ENDPOINT=https://your-resource.cognitiveservices.azure.com
+AZURE_OPENAI_EMBEDDING_API_KEY=your-embedding-key
+AZURE_OPENAI_EMBEDDING_API_VERSION=2023-05-15
 ```
 
 ---
@@ -271,7 +285,7 @@ Intune007/
 
 ---
 
-## Agent Tools Reference (68 tools)
+## Agent Tools Reference (69 tools)
 
 ### Devices (6)
 Managed devices, device details, device card (50+ fields), device timeline, threat summary, risk scores
@@ -279,8 +293,8 @@ Managed devices, device details, device card (50+ fields), device timeline, thre
 ### Device Actions (6)
 Sync (forces check-in), restart (sync-then-reboot), lock, reset passcode, retire, wipe
 
-### Applications (10)
-Mobile apps, install status, detected apps, managed app states, app health, fix/refresh icon (7-source search + PNG conversion), fix all missing icons, remove app (assignments first), rename app, bulk rename apps
+### Applications (11)
+Mobile apps, install status, detected apps, managed app states, app health, scan for missing icons, fix/refresh icon (7-source search + PNG conversion), fix all missing icons, remove app (assignments first), rename app, bulk rename apps
 
 ### Compliance (6)
 Compliance policies, create policy, assign policy, compliance status, compliance trend, compliance forecast
@@ -323,7 +337,7 @@ Generate report, run troubleshooter
 
 ---
 
-## API Endpoints (26 routes)
+## API Endpoints (27 routes)
 
 | Method | Path | Description |
 |---|---|---|
@@ -354,6 +368,11 @@ Generate report, run troubleshooter
 | GET | `/api/risk-scores` | Fleet risk scores |
 | GET | `/api/security-posture` | Security posture dashboard |
 | POST | `/api/troubleshooter/diagnose` | SSE streaming diagnostics |
+| GET | `/api/docs/status` | RAG documentation index status |
+| POST | `/api/docs/index` | Trigger doc indexing (SSE progress) |
+| POST | `/api/docs/search` | Search indexed documentation |
+| DELETE | `/api/remediation/scripts/:id` | Delete remediation script from Intune |
+| PATCH | `/api/remediation/scripts/:id` | Update remediation script content |
 
 ---
 
@@ -403,6 +422,24 @@ Every data element is clickable and connected:
 | Group name | → Query Builder (group members) |
 | Troubleshoot | → Troubleshooter (auto-executes) |
 | Timeline | → Timeline (auto-loads) |
+
+---
+
+## RAG Documentation Engine
+
+The agent has access to official Microsoft Intune documentation via a Retrieval-Augmented Generation pipeline:
+
+| Step | What happens |
+|---|---|
+| **Index** | 45+ pages from learn.microsoft.com scraped, HTML stripped, chunked into ~500-token sections |
+| **Embed** | Each chunk embedded via Azure OpenAI (`text-embedding-ada-002`) → stored in `docs.db` |
+| **Search** | Per user query: embed the question → cosine similarity search → top 3 most relevant chunks |
+| **Inject** | Relevant doc sections injected into the agent's system prompt as context |
+| **Cache** | Index cached for 7 days, subsequent queries use cached embeddings (fast) |
+
+**Coverage:** Intune fundamentals, licensing, enrollment (Windows/iOS/Android), device management, compliance policies, configuration profiles, Settings Catalog, endpoint security, Autopilot (all modes), app management (Win32/MAM), Conditional Access, Proactive Remediations, Windows Update, troubleshooting, Graph API.
+
+**Setup:** Add `AZURE_OPENAI_EMBEDDING_DEPLOYMENT` to `.env`. Falls back to keyword search if embedding model unavailable.
 
 ---
 
