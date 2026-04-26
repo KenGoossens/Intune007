@@ -182,11 +182,14 @@ export default function CVEMonitorPanel() {
                         {cve.affectedProducts.length > 0 && <span>Products: {cve.affectedProducts.slice(0, 3).join(", ")}</span>}
                       </div>
 
-                      <div className="flex items-center gap-1.5 pt-1">
+                      <div className="flex flex-wrap items-center gap-1.5 pt-1">
                         <a href={`https://nvd.nist.gov/vuln/detail/${cve.cveId}`} target="_blank" rel="noopener noreferrer"
                           className="flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 hover:bg-blue-500/20 transition-colors">
                           <ExternalLink size={10} /> NVD Details
                         </a>
+                        {cve.status !== "remediated" && (
+                          <PrepareRemediationButton cveId={cve.cveId} description={cve.description} severity={cve.severity} remediationType={cve.remediationType} onRemediated={() => { updateStatus(cve.cveId, "remediated"); fetchData(); }} />
+                        )}
                         {cve.status === "new" && (
                           <button onClick={() => updateStatus(cve.cveId, "reviewed")}
                             className="flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded bg-gray-700 text-gray-300 hover:bg-gray-600 transition-colors">
@@ -213,5 +216,122 @@ export default function CVEMonitorPanel() {
         )}
       </div>
     </div>
+  );
+}
+
+/** Inline component for the prepare → review → approve remediation workflow */
+function PrepareRemediationButton({ cveId, description, severity, remediationType, onRemediated }: {
+  cveId: string; description: string; severity: string; remediationType: string | null; onRemediated: () => void;
+}) {
+  const [state, setState] = useState<"idle" | "preparing" | "ready" | "executing" | "done" | "error">("idle");
+  const [action, setAction] = useState<Record<string, unknown> | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const prepare = async () => {
+    setState("preparing");
+    useActivityStore.getState().addActivity("cve-remediate");
+    try {
+      const res = await fetch(`/api/cve/${encodeURIComponent(cveId)}/prepare`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ description, severity, suggestedType: remediationType || "update" }),
+      });
+      const data = await res.json();
+      setAction(data);
+      setState("ready");
+    } catch {
+      setError("Failed to prepare action");
+      setState("error");
+    } finally {
+      useActivityStore.getState().removeActivity("cve-remediate");
+    }
+  };
+
+  const approve = async () => {
+    if (!action?.id) return;
+    setState("executing");
+    useActivityStore.getState().addActivity("cve-execute");
+    try {
+      const res = await fetch(`/api/cve/actions/${action.id}/approve`, { method: "POST" });
+      const data = await res.json();
+      if (data.status === "completed") {
+        setState("done");
+        onRemediated();
+      } else {
+        setError(data.error || "Execution failed");
+        setState("error");
+      }
+    } catch {
+      setError("Network error during execution");
+      setState("error");
+    } finally {
+      useActivityStore.getState().removeActivity("cve-execute");
+    }
+  };
+
+  const reject = async () => {
+    if (!action?.id) return;
+    await fetch(`/api/cve/actions/${action.id}/reject`, { method: "POST" });
+    setState("idle");
+    setAction(null);
+  };
+
+  if (state === "idle") {
+    return (
+      <button onClick={prepare}
+        className="flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded bg-brand-500/10 text-brand-400 border border-brand-500/20 hover:bg-brand-500/20 transition-colors">
+        <Shield size={10} /> Prepare Auto-Fix
+      </button>
+    );
+  }
+
+  if (state === "preparing") {
+    return (
+      <span className="flex items-center gap-1 px-2 py-1 text-[10px] text-brand-400">
+        <Loader2 size={10} className="animate-spin" /> Generating remediation action...
+      </span>
+    );
+  }
+
+  if (state === "ready" && action) {
+    return (
+      <div className="w-full mt-2 bg-brand-500/5 border border-brand-500/20 rounded-lg p-2.5 space-y-2">
+        <div className="flex items-center gap-1 text-[10px] font-medium text-brand-400">
+          <Shield size={10} /> Prepared Action: {String(action.title)}
+        </div>
+        <p className="text-[10px] text-gray-300">{String(action.description)}</p>
+        <div className="text-[10px] text-gray-500">Type: {String(action.actionType)} · Status: awaiting approval</div>
+        <div className="flex items-center gap-1.5">
+          <button onClick={approve}
+            className="flex items-center gap-1 px-3 py-1.5 text-[10px] font-semibold rounded bg-green-600 hover:bg-green-700 text-white transition-colors">
+            <CheckCircle size={10} /> Approve & Execute
+          </button>
+          <button onClick={reject}
+            className="flex items-center gap-1 px-2 py-1.5 text-[10px] font-medium rounded bg-gray-700 text-gray-300 hover:bg-gray-600 transition-colors">
+            <X size={10} /> Reject
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (state === "executing") {
+    return (
+      <span className="flex items-center gap-1 px-2 py-1 text-[10px] text-green-400">
+        <Loader2 size={10} className="animate-spin" /> Executing remediation...
+      </span>
+    );
+  }
+
+  if (state === "done") {
+    return (
+      <span className="flex items-center gap-1 px-2 py-1 text-[10px] text-green-400">
+        <CheckCircle size={10} /> Remediation applied!
+      </span>
+    );
+  }
+
+  return (
+    <span className="text-[10px] text-red-400">{error || "Error"}</span>
   );
 }

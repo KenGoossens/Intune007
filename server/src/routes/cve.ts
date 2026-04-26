@@ -4,6 +4,7 @@
 
 import { Router, type Request, type Response } from "express";
 import { runCVEScan, getCVEs, getCVEStats, updateCVEStatus } from "../cve/monitor.js";
+import { generateRemediationAction, executeRemediationAction, rejectRemediationAction, getRemediationActions, getPendingActionCount } from "../cve/remediator.js";
 import { sanitizeErrorMessage } from "../security.js";
 
 const router = Router();
@@ -52,6 +53,53 @@ router.patch("/:cveId/status", (req: Request, res: Response) => {
   try {
     updateCVEStatus(cveId, status);
     res.json({ success: true, cveId, status });
+  } catch (err: unknown) {
+    res.status(500).json({ error: sanitizeErrorMessage(err instanceof Error ? err.message : String(err)) });
+  }
+});
+
+// ════════════════════════════════════════════════════════════════
+//  REMEDIATION ACTIONS — Approval Workflow
+// ════════════════════════════════════════════════════════════════
+
+/** POST /api/cve/:cveId/prepare — Generate a concrete remediation action for a CVE */
+router.post("/:cveId/prepare", async (req: Request, res: Response) => {
+  const cveId = String(req.params.cveId);
+  const { description, severity, suggestedType } = req.body;
+  try {
+    const action = await generateRemediationAction(cveId, description || "", severity || "high", suggestedType || "update");
+    res.json(action);
+  } catch (err: unknown) {
+    res.status(500).json({ error: sanitizeErrorMessage(err instanceof Error ? err.message : String(err)) });
+  }
+});
+
+/** POST /api/cve/actions/:actionId/approve — Approve and execute a remediation action */
+router.post("/actions/:actionId/approve", async (req: Request, res: Response) => {
+  try {
+    const result = await executeRemediationAction(parseInt(String(req.params.actionId), 10));
+    res.json(result);
+  } catch (err: unknown) {
+    res.status(500).json({ error: sanitizeErrorMessage(err instanceof Error ? err.message : String(err)) });
+  }
+});
+
+/** POST /api/cve/actions/:actionId/reject — Reject a remediation action */
+router.post("/actions/:actionId/reject", (req: Request, res: Response) => {
+  try {
+    rejectRemediationAction(parseInt(String(req.params.actionId), 10));
+    res.json({ success: true });
+  } catch (err: unknown) {
+    res.status(500).json({ error: sanitizeErrorMessage(err instanceof Error ? err.message : String(err)) });
+  }
+});
+
+/** GET /api/cve/actions — Get all remediation actions */
+router.get("/actions", (req: Request, res: Response) => {
+  try {
+    const status = req.query.status as string | undefined;
+    const actions = getRemediationActions({ status });
+    res.json({ actions, pending: getPendingActionCount() });
   } catch (err: unknown) {
     res.status(500).json({ error: sanitizeErrorMessage(err instanceof Error ? err.message : String(err)) });
   }
