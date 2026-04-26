@@ -476,6 +476,7 @@ export async function fixAllMissingIcons(): Promise<{
 /**
  * Scan all apps and report which ones have/don't have icons.
  * READ-ONLY — does not modify anything.
+ * Checks each app individually since the list endpoint doesn't return largeIcon binary data.
  */
 export async function scanAppIcons(): Promise<{
   totalApps: number;
@@ -486,9 +487,10 @@ export async function scanAppIcons(): Promise<{
 }> {
   const client = getGraphClient();
 
+  // Get all apps (list query — no icon binary data here)
   const apps = await client
     .api(`${BETA}/deviceAppManagement/mobileApps`)
-    .select("id,displayName,publisher,largeIcon")
+    .select("id,displayName,publisher")
     .top(200)
     .get();
 
@@ -497,21 +499,37 @@ export async function scanAppIcons(): Promise<{
   const withIcons: Array<{ appId: string; displayName: string; publisher: string }> = [];
   const missingIcons: Array<{ appId: string; displayName: string; publisher: string; appType: string }> = [];
 
-  for (const app of allApps) {
-    const hasIcon = app.largeIcon && (app.largeIcon as Record<string, unknown>).value &&
-      String((app.largeIcon as Record<string, unknown>).value || "").length > 100;
+  // Check each app individually for icon (batches of 5 for speed)
+  for (let i = 0; i < allApps.length; i += 5) {
+    const batch = allApps.slice(i, i + 5);
+    const results = await Promise.all(
+      batch.map(async (app) => {
+        try {
+          const detail = await client
+            .api(`${BETA}/deviceAppManagement/mobileApps/${app.id}`)
+            .select("id,largeIcon")
+            .get();
+          const hasIcon = detail.largeIcon?.value && String(detail.largeIcon.value).length > 100;
+          return { app, hasIcon, odataType: detail["@odata.type"] || "" };
+        } catch {
+          return { app, hasIcon: false, odataType: "" };
+        }
+      })
+    );
 
-    const entry = {
-      appId: String(app.id),
-      displayName: String(app.displayName || ""),
-      publisher: String(app.publisher || ""),
-      appType: String(app["@odata.type"] || "").replace("#microsoft.graph.", ""),
-    };
+    for (const { app, hasIcon, odataType } of results) {
+      const entry = {
+        appId: String(app.id),
+        displayName: String(app.displayName || ""),
+        publisher: String(app.publisher || ""),
+        appType: String(odataType).replace("#microsoft.graph.", ""),
+      };
 
-    if (hasIcon) {
-      withIcons.push(entry);
-    } else {
-      missingIcons.push(entry);
+      if (hasIcon) {
+        withIcons.push(entry);
+      } else {
+        missingIcons.push(entry);
+      }
     }
   }
 
