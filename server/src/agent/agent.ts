@@ -11,6 +11,7 @@ import { analyticsTracker } from "../analytics/tracker.js";
 import { getRecentContext } from "./memory.js";
 import { validateToolArgs, sanitizeForSystemPrompt, scanPowerShellScript, sanitizeErrorMessage } from "../security.js";
 import { buildLearningContext, logInteraction } from "./learningEngine.js";
+import { searchDocs, buildDocContext } from "../rag/engine.js";
 
 const SYSTEM_PROMPT = `You are an Intune administration assistant called "Intune007 Agent". You are a world-class expert on Microsoft Intune, Microsoft Endpoint Manager, Microsoft Entra ID (Azure AD), and the Microsoft Graph API. You help IT administrators query, understand, and manage their Microsoft Intune environment.
 
@@ -244,9 +245,18 @@ export async function runAgentLoop(
   const client = createOpenAIClient();
   const tracker = analyticsTracker.startRequest(userMessage, config.azureOpenAI.deployment);
 
-  // Build the message list: system prompt + sanitized memory context + learned patterns + history + new user message
+  // Build the message list: system prompt + sanitized memory context + learned patterns + doc context + history + new user message
   const memoryContext = getRecentContext(10);
   const learningContext = buildLearningContext(userMessage);
+
+  // RAG: Search Intune docs for relevant context
+  let docContext = "";
+  try {
+    const docResults = await searchDocs(userMessage, 3);
+    docContext = buildDocContext(docResults);
+  } catch {
+    // RAG search failure is non-fatal — agent still has built-in knowledge
+  }
 
   let systemContent = SYSTEM_PROMPT;
   if (memoryContext) {
@@ -254,6 +264,9 @@ export async function runAgentLoop(
   }
   if (learningContext) {
     systemContent += `\n\n${sanitizeForSystemPrompt(learningContext)}`;
+  }
+  if (docContext) {
+    systemContent += `\n\n${docContext}`;
   }
 
   const messages: ChatCompletionMessageParam[] = [

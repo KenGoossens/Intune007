@@ -30,6 +30,7 @@ import diagnosticLogsRouter from "./routes/diagnosticLogs.js";
 import reportGeneratorRouter from "./routes/reportGenerator.js";
 import deviceCardRouter from "./routes/deviceCard.js";
 import learningRouter from "./routes/learning.js";
+import docsRouter from "./routes/docs.js";
 import { alertScheduler } from "./alerts/scheduler.js";
 import { startTaskScheduler } from "./scheduler/taskScheduler.js";
 
@@ -107,6 +108,7 @@ app.use("/api/diagnostic-logs", diagnosticLogsRouter);
 app.use("/api/report-generator", reportGeneratorRouter);
 app.use("/api/device-card", deviceCardRouter);
 app.use("/api/learning", learningRouter);
+app.use("/api/docs", docsRouter);
 
 // Health check
 app.get("/api/health", (_req, res) => {

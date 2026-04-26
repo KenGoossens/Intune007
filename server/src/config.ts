@@ -7,6 +7,7 @@ export const config = {
     apiKey: process.env.AZURE_OPENAI_API_KEY!,
     endpoint: process.env.AZURE_OPENAI_ENDPOINT!,
     deployment: process.env.AZURE_OPENAI_DEPLOYMENT!,
+    embeddingDeployment: process.env.AZURE_OPENAI_EMBEDDING_DEPLOYMENT || "text-embedding-ada-002",
     apiVersion: process.env.AZURE_OPENAI_API_VERSION || "2024-10-01-preview",
   },
 
