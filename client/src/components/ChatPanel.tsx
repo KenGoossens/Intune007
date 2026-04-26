@@ -63,12 +63,12 @@ export default function ChatPanel({ onClose }: { onClose?: () => void }) {
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
         <div className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-brand-600 rounded-lg flex items-center justify-center">
-            <Bot size={18} />
+          <div className="w-8 h-8 bg-brand-500/20 border border-brand-500/30 rounded-lg flex items-center justify-center">
+            <span className="text-brand-400 font-black text-xs italic" style={{ fontFamily: "'Georgia', serif" }}>007</span>
           </div>
           <div>
-            <h2 className="text-sm font-semibold text-white">Intune007 Agent</h2>
-            <p className="text-xs text-gray-400">AI-Powered Intune Management</p>
+            <h2 className="text-sm font-semibold text-white">Intune<span className="text-brand-400 italic" style={{ fontFamily: "'Georgia', serif" }}>007</span> Agent</h2>
+            <p className="text-[10px] text-gray-500 italic" style={{ fontFamily: "'Georgia', serif" }}>Your license to manage.</p>
           </div>
         </div>
         <div className="flex items-center gap-1">

@@ -119,15 +119,18 @@ export default function App() {
       {/* ─── Left Navigation ─────────────────────────────────────── */}
       <nav className="w-52 flex flex-col bg-gray-900 border-r border-gray-800 shrink-0">
         {/* Branding */}
-        <div className="flex items-center gap-2.5 px-5 py-4 border-b border-gray-800">
-          <div className="w-8 h-8 bg-brand-600 rounded-lg flex items-center justify-center">
-            <Shield size={16} className="text-white" />
-          </div>
-          <div>
-            <span className="text-sm font-bold text-white tracking-tight">
-              Intune<span className="text-brand-400">007</span>
-            </span>
-            <p className="text-[10px] text-gray-500 leading-tight">License to Manage!</p>
+        <div className="px-5 py-4 border-b border-gray-800">
+          <div className="flex items-center gap-3">
+            <div className="flex flex-col items-center leading-none">
+              <span className="text-2xl font-black text-brand-400 italic tracking-tighter" style={{ fontFamily: "'Georgia', serif" }}>007</span>
+              <div className="w-full h-[2px] bg-brand-400 mt-0.5" />
+            </div>
+            <div>
+              <span className="text-sm font-bold text-white tracking-tight">
+                Intune <span className="text-brand-400 italic" style={{ fontFamily: "'Georgia', serif" }}>007</span>
+              </span>
+              <p className="text-[10px] text-gray-500 italic leading-tight" style={{ fontFamily: "'Georgia', serif" }}>Your license to manage.</p>
+            </div>
           </div>
         </div>
 
@@ -182,7 +185,7 @@ export default function App() {
         </div>
 
         <div className="px-5 py-3 border-t border-gray-800">
-          <p className="text-[10px] text-gray-600">v1.0 · AI-Powered</p>
+          <p className="text-[10px] text-gray-600 italic" style={{ fontFamily: "'Georgia', serif" }}>v1.0 · AI-Powered</p>
         </div>
       </nav>
 
