@@ -1371,6 +1371,19 @@ export const agentTools: ChatCompletionTool[] = [
   {
     type: "function",
     function: {
+      name: "scan_app_icons",
+      description:
+        "Scan all managed apps and report which ones have icons and which are missing icons. This is READ-ONLY — it does NOT modify anything. Use this when the user asks how many apps have missing icons/logos, or wants to see which apps need icons. Returns lists of apps with and without icons.",
+      parameters: {
+        type: "object",
+        properties: {},
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "fix_all_missing_icons",
       description:
         "Scan ALL managed apps in Intune for missing icons and automatically search and upload icons for each one. This is a bulk operation — use it when the user asks to fix all missing app icons at once. Returns a summary of how many icons were found and uploaded.",

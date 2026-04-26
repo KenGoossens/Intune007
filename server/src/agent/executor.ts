@@ -69,7 +69,7 @@ import { deployToIntune } from "../remediation/deployer.js";
 import { analyzePolicies } from "../policyAnalyzer/analyzer.js";
 import { sanitizeOData, isValidUUID, scanPowerShellScript, sanitizeErrorMessage } from "../security.js";
 import { getLearningStats, recordCorrection } from "./learningEngine.js";
-import { findAndUploadIcon, fixAllMissingIcons } from "../graph/appIcons.js";
+import { findAndUploadIcon, fixAllMissingIcons, scanAppIcons } from "../graph/appIcons.js";
 import { removeApp, renameApp, bulkRenameApps } from "../graph/appManagement.js";
 
 export interface ToolResult {
@@ -667,6 +667,21 @@ export async function executeTool(
           !!args.force
         );
         return { data: [result], totalCount: 1 };
+      }
+
+      case "scan_app_icons": {
+        const scan = await scanAppIcons();
+        // Return missing icons as rows for the data panel
+        const rows = scan.missingIcons.map((a) => ({
+          displayName: a.displayName,
+          publisher: a.publisher,
+          appType: a.appType,
+          icon: "❌ Missing",
+        }));
+        return {
+          data: rows.length > 0 ? rows : [{ displayName: "All apps have icons!", publisher: "", appType: "", icon: "✅" }],
+          totalCount: scan.totalApps,
+        };
       }
 
       case "fix_all_missing_icons": {

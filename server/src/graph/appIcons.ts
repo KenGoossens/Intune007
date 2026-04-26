@@ -472,3 +472,54 @@ export async function fixAllMissingIcons(): Promise<{
     results,
   };
 }
+
+/**
+ * Scan all apps and report which ones have/don't have icons.
+ * READ-ONLY — does not modify anything.
+ */
+export async function scanAppIcons(): Promise<{
+  totalApps: number;
+  appsWithIcons: number;
+  appsMissingIcons: number;
+  withIcons: Array<{ appId: string; displayName: string; publisher: string }>;
+  missingIcons: Array<{ appId: string; displayName: string; publisher: string; appType: string }>;
+}> {
+  const client = getGraphClient();
+
+  const apps = await client
+    .api(`${BETA}/deviceAppManagement/mobileApps`)
+    .select("id,displayName,publisher,largeIcon")
+    .top(200)
+    .get();
+
+  const allApps = (apps.value || []) as Array<Record<string, unknown>>;
+
+  const withIcons: Array<{ appId: string; displayName: string; publisher: string }> = [];
+  const missingIcons: Array<{ appId: string; displayName: string; publisher: string; appType: string }> = [];
+
+  for (const app of allApps) {
+    const hasIcon = app.largeIcon && (app.largeIcon as Record<string, unknown>).value &&
+      String((app.largeIcon as Record<string, unknown>).value || "").length > 100;
+
+    const entry = {
+      appId: String(app.id),
+      displayName: String(app.displayName || ""),
+      publisher: String(app.publisher || ""),
+      appType: String(app["@odata.type"] || "").replace("#microsoft.graph.", ""),
+    };
+
+    if (hasIcon) {
+      withIcons.push(entry);
+    } else {
+      missingIcons.push(entry);
+    }
+  }
+
+  return {
+    totalApps: allApps.length,
+    appsWithIcons: withIcons.length,
+    appsMissingIcons: missingIcons.length,
+    withIcons,
+    missingIcons,
+  };
+}
