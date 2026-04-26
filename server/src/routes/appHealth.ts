@@ -218,6 +218,47 @@ router.post("/fix-icon", async (req: Request, res: Response) => {
   res.end();
 });
 
+/** POST /api/app-health/upload-icon-url — Download icon from a custom URL and upload to Intune */
+router.post("/upload-icon-url", async (req: Request, res: Response) => {
+  const { appId, iconUrl } = req.body;
+  if (!appId || !iconUrl) { res.status(400).json({ error: "appId and iconUrl required" }); return; }
+  try {
+    // Validate URL format
+    const url = new URL(iconUrl);
+    if (!["http:", "https:"].includes(url.protocol)) {
+      res.status(400).json({ error: "Only HTTP/HTTPS URLs are supported" });
+      return;
+    }
+
+    // Fetch the icon
+    const response = await fetch(iconUrl, {
+      headers: { "User-Agent": "Mozilla/5.0 Intune007/1.0" },
+      redirect: "follow",
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!response.ok) { res.status(400).json({ error: `Failed to fetch icon: HTTP ${response.status}` }); return; }
+
+    const buffer = Buffer.from(await response.arrayBuffer());
+    if (buffer.length < 100) { res.status(400).json({ error: "Downloaded file is too small to be a valid icon" }); return; }
+
+    // Convert to PNG using sharp
+    const sharp = (await import("sharp")).default;
+    const png = await sharp(buffer)
+      .resize(128, 128, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 } })
+      .png()
+      .toBuffer();
+
+    // Upload to Intune
+    const { uploadAppIcon } = await import("../graph/appIcons.js");
+    await uploadAppIcon(appId, png.toString("base64"), "image/png");
+    clearAppHealthCache();
+
+    res.json({ success: true, message: `Icon uploaded from custom URL (${Math.round(png.length / 1024)}KB PNG)` });
+  } catch (err: unknown) {
+    res.status(500).json({ error: sanitizeErrorMessage(err instanceof Error ? err.message : String(err)) });
+  }
+});
+
 /** DELETE /api/app-health/:appId — Remove an app from Intune (assignments first, then delete) */
 router.delete("/:appId", async (req: Request, res: Response) => {
   const appId = String(req.params.appId);

@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { useActivityStore } from "../stores/activityStore.ts";
-import { Loader2, AppWindow, RefreshCw, CheckCircle2, XCircle, AlertTriangle, ChevronDown, ChevronRight, Monitor, Trash2, ImagePlus, Wrench, Search, Minus } from "lucide-react";
+import { Loader2, AppWindow, RefreshCw, CheckCircle2, XCircle, AlertTriangle, ChevronDown, ChevronRight, Monitor, Trash2, ImagePlus, Wrench, Search, Minus, ThumbsDown, Link } from "lucide-react";
 import DeviceLink from "./DeviceLink.tsx";
 import { TroubleshootDrillLink } from "./DrillLinks.tsx";
 
@@ -16,6 +16,27 @@ export default function AppHealthPanel() {
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<{ id: string; text: string; ok: boolean } | null>(null);
+  const [customIconApp, setCustomIconApp] = useState<string | null>(null); // appId showing custom URL input
+  const [customIconUrl, setCustomIconUrl] = useState("");
+
+  const handleUploadCustomIcon = async (appId: string) => {
+    if (!customIconUrl.trim()) return;
+    setActionLoading(appId);
+    try {
+      const res = await fetch("/api/app-health/upload-icon-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ appId, iconUrl: customIconUrl.trim() }),
+      });
+      const data = await res.json();
+      setActionMessage({ id: appId, text: data.message || (data.success ? "Icon uploaded!" : data.error || "Failed"), ok: !!data.success });
+      if (data.success) { setCustomIconApp(null); setCustomIconUrl(""); setTimeout(fetchData, 1500); }
+    } catch {
+      setActionMessage({ id: appId, text: "Upload failed", ok: false });
+    } finally {
+      setActionLoading(null);
+    }
+  };
 
   const fetchData = useCallback(async () => {
     setIsLoading(true); useActivityStore.getState().addActivity("app-health");
@@ -203,6 +224,16 @@ export default function AppHealthPanel() {
                 >
                   <ImagePlus size={13} />
                 </button>
+                {app.iconBase64 && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setCustomIconApp(customIconApp === app.appId ? null : app.appId); setCustomIconUrl(""); }}
+                    disabled={isDeleting}
+                    className="p-1.5 text-gray-600 hover:text-orange-400 hover:bg-orange-500/10 rounded transition-colors"
+                    title="Wrong icon — provide custom URL"
+                  >
+                    <ThumbsDown size={13} />
+                  </button>
+                )}
                 <button
                   onClick={(e) => { e.stopPropagation(); setDeleteConfirm(deleteConfirm === app.appId ? null : app.appId); }}
                   disabled={isDeleting}
@@ -228,6 +259,34 @@ export default function AppHealthPanel() {
               {msg && (
                 <div className={`px-3 py-1.5 border-t text-[11px] ${msg.ok ? "border-green-500/30 bg-green-500/5 text-green-400" : "border-red-500/30 bg-red-500/5 text-red-400"}`}>
                   {msg.text}
+                </div>
+              )}
+
+              {/* Custom icon URL input */}
+              {customIconApp === app.appId && (
+                <div className="px-3 py-2 border-t border-orange-500/30 bg-orange-500/5">
+                  <p className="text-[10px] text-orange-400 font-medium mb-1.5">Wrong icon? Provide a direct URL to the correct logo:</p>
+                  <div className="flex gap-2">
+                    <div className="flex items-center gap-1 flex-1 bg-gray-800 rounded border border-gray-700 focus-within:border-brand-500 px-2">
+                      <Link size={11} className="text-gray-500 shrink-0" />
+                      <input
+                        value={customIconUrl}
+                        onChange={(e) => setCustomIconUrl(e.target.value)}
+                        placeholder="https://example.com/logo.png"
+                        className="flex-1 bg-transparent text-gray-300 text-[11px] py-1.5 focus:outline-none placeholder-gray-600"
+                        onKeyDown={(e) => e.key === "Enter" && handleUploadCustomIcon(app.appId)}
+                      />
+                    </div>
+                    <button
+                      onClick={() => handleUploadCustomIcon(app.appId)}
+                      disabled={!customIconUrl.trim() || !!actionLoading}
+                      className="px-3 py-1 text-[10px] font-medium bg-orange-600 hover:bg-orange-700 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded transition-colors"
+                    >
+                      {actionLoading === app.appId ? <Loader2 size={10} className="animate-spin" /> : "Upload"}
+                    </button>
+                    <button onClick={() => setCustomIconApp(null)} className="px-2 py-1 text-[10px] text-gray-400 hover:text-white transition-colors">Cancel</button>
+                  </div>
+                  <p className="text-[9px] text-gray-600 mt-1">Tip: Right-click the correct logo on the app's website → "Copy image address" → paste here. PNG/JPG/SVG/ICO all work — auto-converted to PNG.</p>
                 </div>
               )}
 
