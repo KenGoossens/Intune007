@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useActivityStore } from "../stores/activityStore.ts";
 import { Loader2, Target, AlertCircle, CheckCircle2, HelpCircle } from "lucide-react";
 
 interface ForecastDevice { deviceName: string; userPrincipalName: string; currentValue: unknown; result: "pass" | "fail" | "unknown"; }
@@ -26,14 +27,14 @@ export default function ForecastPanel() {
 
   const runForecast = async () => {
     if (!selected || isLoading) return;
-    setIsLoading(true);
+    setIsLoading(true); useActivityStore.getState().addActivity("forecast");
     try {
       const res = await fetch("/api/forecast", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ requirement: selected }),
       });
       setResult(await res.json());
-    } catch { /* ignore */ } finally { setIsLoading(false); }
+    } catch { /* ignore */ } finally { setIsLoading(false); useActivityStore.getState().removeActivity("forecast"); }
   };
 
   return (

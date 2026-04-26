@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
+import { useActivityStore } from "../stores/activityStore.ts";
 import { Loader2, AppWindow, RefreshCw, CheckCircle2, XCircle, AlertTriangle, ChevronDown, ChevronRight, Monitor, Trash2, ImagePlus, Wrench, Search, Minus } from "lucide-react";
 import DeviceLink from "./DeviceLink.tsx";
 import { TroubleshootDrillLink } from "./DrillLinks.tsx";
@@ -17,9 +18,9 @@ export default function AppHealthPanel() {
   const [actionMessage, setActionMessage] = useState<{ id: string; text: string; ok: boolean } | null>(null);
 
   const fetchData = useCallback(async () => {
-    setIsLoading(true);
+    setIsLoading(true); useActivityStore.getState().addActivity("app-health");
     try { const res = await fetch("/api/app-health"); setData(await res.json()); }
-    catch { /* ignore */ } finally { setIsLoading(false); }
+    catch { /* ignore */ } finally { setIsLoading(false); useActivityStore.getState().removeActivity("app-health"); }
   }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);

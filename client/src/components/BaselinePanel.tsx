@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
+import { useActivityStore } from "../stores/activityStore.ts";
 import { Loader2, Database, Plus, Trash2, GitCompare, RefreshCw, ArrowRight, Minus, CheckCircle2 } from "lucide-react";
 
 interface Snapshot { id: number; name: string; description: string; createdAt: string; stats: { compliancePolicies: number; configProfiles: number; caPolicies: number }; }

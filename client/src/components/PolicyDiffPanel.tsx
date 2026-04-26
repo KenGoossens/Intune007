@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { useActivityStore } from "../stores/activityStore.ts";
 import {
   Loader2,
   GitCompare,
@@ -68,7 +69,7 @@ export default function PolicyDiffPanel() {
 
   const runDiff = async () => {
     if (!selectedA || !selectedB || isLoading) return;
-    setIsLoading(true);
+    setIsLoading(true); useActivityStore.getState().addActivity("policy-diff");
     setDiffResult(null);
     setCloneResult(null);
     try {
@@ -83,7 +84,7 @@ export default function PolicyDiffPanel() {
     } catch (err) {
       console.error(err);
     } finally {
-      setIsLoading(false);
+      setIsLoading(false); useActivityStore.getState().removeActivity("policy-diff");
     }
   };
 

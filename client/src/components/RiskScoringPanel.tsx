@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
+import { useActivityStore } from "../stores/activityStore.ts";
 import {
   RefreshCw,
   Loader2,
@@ -82,7 +83,7 @@ export default function RiskScoringPanel() {
   const [filterLevel, setFilterLevel] = useState<string>("all");
 
   const fetchScores = useCallback(async (force = false) => {
-    setIsLoading(true);
+    setIsLoading(true); useActivityStore.getState().addActivity("risk-scoring");
     setError(null);
     try {
       const url = force ? "/api/risk-scores/refresh" : "/api/risk-scores";
@@ -94,7 +95,7 @@ export default function RiskScoringPanel() {
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setIsLoading(false);
+      setIsLoading(false); useActivityStore.getState().removeActivity("risk-scoring");
     }
   }, []);
 

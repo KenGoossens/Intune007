@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
+import { useActivityStore } from "../stores/activityStore.ts";
 import {
   RefreshCw,
   Loader2,
@@ -85,7 +86,7 @@ export default function InsightsPanel() {
   const [error, setError] = useState<string | null>(null);
 
   const fetchReport = useCallback(async (force = false) => {
-    setIsLoading(true);
+    setIsLoading(true); useActivityStore.getState().addActivity("insights");
     setError(null);
     try {
       const url = force ? "/api/insights/refresh" : "/api/insights";
@@ -97,7 +98,7 @@ export default function InsightsPanel() {
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setIsLoading(false);
+      setIsLoading(false); useActivityStore.getState().removeActivity("insights");
     }
   }, []);
 

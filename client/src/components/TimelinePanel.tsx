@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useActivityStore } from "../stores/activityStore.ts";
 import { Loader2, Clock, Monitor, ShieldCheck, Settings, FileText, Zap } from "lucide-react";
 import { useNavigationStore } from "../stores/navigationStore.ts";
 
@@ -41,7 +42,7 @@ export default function TimelinePanel() {
 
   const loadTimeline = async (name: string) => {
     if (!name.trim() || isLoading) return;
-    setIsLoading(true); setResult(null);
+    setIsLoading(true); useActivityStore.getState().addActivity("timeline"); setResult(null);
     try {
       const res = await fetch("/api/device-timeline", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -49,7 +50,7 @@ export default function TimelinePanel() {
       });
       if (!res.ok) throw new Error("Device not found");
       setResult(await res.json());
-    } catch { /* */ } finally { setIsLoading(false); }
+    } catch { /* */ } finally { setIsLoading(false); useActivityStore.getState().removeActivity("timeline"); }
   };
 
   const fetch_timeline = () => loadTimeline(deviceName);

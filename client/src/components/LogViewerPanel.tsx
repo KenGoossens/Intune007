@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
+import { useActivityStore } from "../stores/activityStore.ts";
 import {
   FileText,
   RefreshCw,
@@ -27,7 +28,7 @@ export default function LogViewerPanel() {
   const [topCount, setTopCount] = useState(25);
 
   const fetchLogs = useCallback(async () => {
-    setIsLoading(true);
+    setIsLoading(true); useActivityStore.getState().addActivity("log-viewer");
     try {
       const endpoint =
         activeTab === "audit"
@@ -43,7 +44,7 @@ export default function LogViewerPanel() {
       console.error("Failed to fetch logs:", err);
       setLogs([]);
     } finally {
-      setIsLoading(false);
+      setIsLoading(false); useActivityStore.getState().removeActivity("log-viewer");
     }
   }, [activeTab, topCount]);
 

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useActivityStore } from "../stores/activityStore.ts";
 import { Loader2, Rocket, CheckCircle2, XCircle, AlertTriangle, Info } from "lucide-react";
 
 interface ReadinessCheck { step: string; status: "pass" | "fail" | "warning" | "info"; detail: string; }
@@ -18,14 +19,14 @@ export default function AutopilotReadinessPanel() {
 
   const check = async () => {
     if (!serial.trim() || isLoading) return;
-    setIsLoading(true); setResult(null);
+    setIsLoading(true); useActivityStore.getState().addActivity("autopilot-check"); setResult(null);
     try {
       const res = await fetch("/api/autopilot-readiness/check", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ serialNumber: serial.trim() }),
       });
       setResult(await res.json());
-    } catch { /* ignore */ } finally { setIsLoading(false); }
+    } catch { /* ignore */ } finally { setIsLoading(false); useActivityStore.getState().removeActivity("autopilot-check"); }
   };
 
   return (

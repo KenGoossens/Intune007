@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { PolicyAnalysisResult } from "@intune-agent/shared";
+import { useActivityStore } from "./activityStore.ts";
 
 interface PolicyAnalyzerState {
   result: PolicyAnalysisResult | null;
@@ -16,6 +17,7 @@ export const usePolicyAnalyzerStore = create<PolicyAnalyzerState>((set) => ({
 
   fetch: async () => {
     set({ loading: true, error: null });
+    useActivityStore.getState().addActivity("policy-analyzer");
     try {
       const res = await fetch("/api/policy-analyzer");
       if (!res.ok) {
@@ -24,14 +26,17 @@ export const usePolicyAnalyzerStore = create<PolicyAnalyzerState>((set) => ({
       }
       const data: PolicyAnalysisResult = await res.json();
       set({ result: data, loading: false });
+      useActivityStore.getState().removeActivity("policy-analyzer");
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       set({ error: msg, loading: false });
+      useActivityStore.getState().removeActivity("policy-analyzer");
     }
   },
 
   refresh: async () => {
     set({ loading: true, error: null });
+    useActivityStore.getState().addActivity("policy-analyzer-refresh");
     try {
       const res = await fetch("/api/policy-analyzer/refresh", { method: "POST" });
       if (!res.ok) {
@@ -40,9 +45,11 @@ export const usePolicyAnalyzerStore = create<PolicyAnalyzerState>((set) => ({
       }
       const data: PolicyAnalysisResult = await res.json();
       set({ result: data, loading: false });
+      useActivityStore.getState().removeActivity("policy-analyzer-refresh");
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       set({ error: msg, loading: false });
+      useActivityStore.getState().removeActivity("policy-analyzer-refresh");
     }
   },
 }));

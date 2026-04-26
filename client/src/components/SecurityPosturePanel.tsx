@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
+import { useActivityStore } from "../stores/activityStore.ts";
 import {
   Loader2, Shield, TrendingUp, TrendingDown, Minus, RefreshCw,
   Lock, ShieldCheck, ShieldAlert, Clock, Monitor, CheckCircle2,
@@ -64,9 +65,9 @@ export default function SecurityPosturePanel() {
   const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
-    setIsLoading(true);
+    setIsLoading(true); useActivityStore.getState().addActivity("security-posture");
     try { const res = await fetch("/api/security-posture"); setData(await res.json()); }
-    catch { /* */ } finally { setIsLoading(false); }
+    catch { /* */ } finally { setIsLoading(false); useActivityStore.getState().removeActivity("security-posture"); }
   }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);
