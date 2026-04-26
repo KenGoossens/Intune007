@@ -53,19 +53,35 @@ router.post("/deploy", async (req: Request, res: Response) => {
   try {
     let result: Record<string, unknown>;
 
-    // Strip MAA/attestation properties that require tenant feature flags
-    const MAA_PROPERTIES = [
+    // Strip MAA/attestation/Windows 11 properties that require tenant feature flags
+    // The "MAA Windows 11 settings Feature not enabled" error is triggered by ANY of these
+    const MAA_PROPERTIES = new Set([
       "requireHealthyDeviceReport",
       "configurationManagerComplianceRequired",
       "memoryIntegrityEnabled",
       "kernelDmaProtectionEnabled",
       "virtualizationBasedSecurityEnabled",
       "firmwareProtectionEnabled",
-    ];
-    const body = { ...policy.fullBody };
-    for (const prop of MAA_PROPERTIES) {
-      delete body[prop];
+      "secureBootEnabled",
+      "codeIntegrityEnabled",
+      "earlyLaunchAntiMalwareDriverEnabled",
+      "tpmRequired",
+      "deviceCompliancePolicyScript",
+      "validOperatingSystemBuildRanges",
+    ]);
+    const body = JSON.parse(JSON.stringify(policy.fullBody)); // deep clone
+    // Strip from top-level
+    for (const key of Object.keys(body)) {
+      if (MAA_PROPERTIES.has(key)) delete body[key];
     }
+    // Also strip from nested "settings" if present
+    if (body.settings && typeof body.settings === "object") {
+      for (const key of Object.keys(body.settings)) {
+        if (MAA_PROPERTIES.has(key)) delete body.settings[key];
+      }
+    }
+
+    console.log("[PolicyBuilder] Deploy body (MAA-stripped):", JSON.stringify(body).substring(0, 500));
 
     if (policy.policyType === "configuration") {
       result = await createConfigurationProfile(body);
