@@ -21,9 +21,11 @@ import TimelinePanel from "./components/TimelinePanel.tsx";
 import SecurityPosturePanel from "./components/SecurityPosturePanel.tsx";
 import ReportGeneratorPanel from "./components/ReportGeneratorPanel.tsx";
 import DeviceCardPanel from "./components/DeviceCardPanel.tsx";
+import SparkleOverlay from "./components/SparkleOverlay.tsx";
 import { GripVertical, Shield, MessageSquare, X } from "lucide-react";
 import { useAlertStore } from "./stores/alertStore.ts";
 import { useNavigationStore } from "./stores/navigationStore.ts";
+import { useChatStore } from "./stores/chatStore.ts";
 
 type ActivePanel = "alerts" | "data" | "remediation" | "analytics" | "policies" | "policyBuilder" | "policyDiff" | "riskScores" | "troubleshooter" | "forecast" | "queryBuilder" | "appHealth" | "autopilotReadiness" | "baselines" | "timeline" | "securityPosture" | "reportGenerator" | "deviceCard" | "logs" | "tasks" | "insights";
 
@@ -86,6 +88,7 @@ export default function App() {
   const criticalCount = useAlertStore(
     (s) => s.alerts.filter((a) => a.severity === "critical" && !a.acknowledged).length
   );
+  const isStreaming = useChatStore((s) => s.isStreaming);
 
   const handleMouseDown = useCallback(() => {
     isDragging.current = true;
@@ -192,7 +195,8 @@ export default function App() {
       {/* ─── Main Content Area ───────────────────────────────────── */}
       <div ref={contentRef} className="flex flex-1 overflow-hidden">
         {/* Center: Active panel content */}
-        <div className="flex-1 overflow-hidden">
+        <div className="flex-1 overflow-hidden relative">
+          <SparkleOverlay active={isStreaming} />
           {activePanel === "alerts" ? (
             <AlertsPanel />
           ) : activePanel === "remediation" ? (
