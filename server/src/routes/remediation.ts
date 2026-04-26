@@ -8,7 +8,10 @@ import {
   listRemediationScripts,
   getRemediationScript,
   getRemediationScriptDeviceStates,
+  deleteRemediationScript,
+  updateRemediationScript,
 } from "../graph/remediation.js";
+import { sanitizeErrorMessage } from "../security.js";
 
 const router = Router();
 
@@ -147,6 +150,41 @@ router.get("/scripts/:id/states", async (req: Request, res: Response) => {
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     res.status(500).json({ error: msg });
+  }
+});
+
+/**
+ * DELETE /api/remediation/scripts/:id
+ * Delete a Proactive Remediation script from Intune.
+ */
+router.delete("/scripts/:id", async (req: Request, res: Response) => {
+  try {
+    await deleteRemediationScript(req.params.id as string);
+    res.json({ success: true, message: "Remediation script deleted." });
+  } catch (err: unknown) {
+    res.status(500).json({ error: sanitizeErrorMessage(err instanceof Error ? err.message : String(err)) });
+  }
+});
+
+/**
+ * PATCH /api/remediation/scripts/:id
+ * Update a Proactive Remediation script (name, description, detection/remediation scripts).
+ * Scripts in body should be plain text — they'll be Base64-encoded here.
+ */
+router.patch("/scripts/:id", async (req: Request, res: Response) => {
+  const { displayName, description, detectionScript, remediationScript, runAsAccount } = req.body;
+  try {
+    const params: Parameters<typeof updateRemediationScript>[1] = {};
+    if (displayName) params.displayName = displayName;
+    if (description !== undefined) params.description = description;
+    if (detectionScript) params.detectionScriptContent = Buffer.from(detectionScript, "utf-8").toString("base64");
+    if (remediationScript) params.remediationScriptContent = Buffer.from(remediationScript, "utf-8").toString("base64");
+    if (runAsAccount) params.runAsAccount = runAsAccount;
+
+    const result = await updateRemediationScript(req.params.id as string, params);
+    res.json({ success: true, script: result });
+  } catch (err: unknown) {
+    res.status(500).json({ error: sanitizeErrorMessage(err instanceof Error ? err.message : String(err)) });
   }
 });
 
