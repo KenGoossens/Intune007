@@ -26,6 +26,7 @@ import { GripVertical, Shield, MessageSquare, X } from "lucide-react";
 import { useAlertStore } from "./stores/alertStore.ts";
 import { useNavigationStore } from "./stores/navigationStore.ts";
 import { useChatStore } from "./stores/chatStore.ts";
+import { useActivityStore } from "./stores/activityStore.ts";
 
 type ActivePanel = "alerts" | "data" | "remediation" | "analytics" | "policies" | "policyBuilder" | "policyDiff" | "riskScores" | "troubleshooter" | "forecast" | "queryBuilder" | "appHealth" | "autopilotReadiness" | "baselines" | "timeline" | "securityPosture" | "reportGenerator" | "deviceCard" | "logs" | "tasks" | "insights";
 
@@ -89,6 +90,7 @@ export default function App() {
     (s) => s.alerts.filter((a) => a.severity === "critical" && !a.acknowledged).length
   );
   const isStreaming = useChatStore((s) => s.isStreaming);
+  const isAgentActive = useActivityStore((s) => s.isActive);
 
   const handleMouseDown = useCallback(() => {
     isDragging.current = true;
@@ -196,7 +198,7 @@ export default function App() {
       <div ref={contentRef} className="flex flex-1 overflow-hidden">
         {/* Center: Active panel content */}
         <div className="flex-1 overflow-hidden relative">
-          <SparkleOverlay active={isStreaming} />
+          <SparkleOverlay active={isStreaming || isAgentActive} />
           {activePanel === "alerts" ? (
             <AlertsPanel />
           ) : activePanel === "remediation" ? (

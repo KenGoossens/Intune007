@@ -16,6 +16,7 @@ import {
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useNavigationStore } from "../stores/navigationStore.ts";
+import { useActivityStore } from "../stores/activityStore.ts";
 
 type StepStatus = "pending" | "running" | "pass" | "fail" | "warning" | "info" | "error";
 
@@ -136,6 +137,7 @@ export default function TroubleshooterPanel() {
     setResult(null);
     setError(null);
     setExpandedStep(null);
+    useActivityStore.getState().addActivity("troubleshooter");
 
     try {
       const res = await fetch("/api/troubleshooter/diagnose", {
@@ -210,6 +212,7 @@ export default function TroubleshooterPanel() {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setIsRunning(false);
+      useActivityStore.getState().removeActivity("troubleshooter");
     }
   };
 

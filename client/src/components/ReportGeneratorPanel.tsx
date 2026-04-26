@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useActivityStore } from "../stores/activityStore.ts";
 import {
   Loader2,
   FileText,
@@ -63,6 +64,7 @@ export default function ReportGeneratorPanel() {
     setIsGenerating(true);
     setError(null);
     setReport(null);
+    useActivityStore.getState().addActivity("report-generation");
     try {
       const res = await fetch("/api/report-generator/generate", {
         method: "POST",
@@ -78,6 +80,7 @@ export default function ReportGeneratorPanel() {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setIsGenerating(false);
+      useActivityStore.getState().removeActivity("report-generation");
     }
   };
 

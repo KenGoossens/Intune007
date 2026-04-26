@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { useActivityStore } from "./activityStore.ts";
 
 export interface PolicySettingSummary {
   setting: string;
@@ -53,6 +54,7 @@ export const usePolicyBuilderStore = create<PolicyBuilderState>()(
 
   generatePolicy: async (prompt: string, benchmark?: string) => {
     set({ isGenerating: true, currentPolicy: null, deployResult: null });
+    useActivityStore.getState().addActivity("policy-generation");
     try {
       const res = await fetch("/api/policy-builder/generate", {
         method: "POST",
@@ -71,6 +73,7 @@ export const usePolicyBuilderStore = create<PolicyBuilderState>()(
       set({ currentPolicy: null });
     } finally {
       set({ isGenerating: false });
+      useActivityStore.getState().removeActivity("policy-generation");
     }
   },
 

@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { useActivityStore } from "./activityStore.ts";
 
 export interface GeneratedScript {
   displayName: string;
@@ -51,6 +52,7 @@ export const useRemediationStore = create<RemediationState>()(
 
   generateScript: async (prompt: string, alertType?: string) => {
     set({ isGenerating: true, currentScript: null, deployResult: null });
+    useActivityStore.getState().addActivity("script-generation");
     try {
       const res = await fetch("/api/remediation/generate", {
         method: "POST",
@@ -68,11 +70,13 @@ export const useRemediationStore = create<RemediationState>()(
       console.error("Script generation failed:", msg);
     } finally {
       set({ isGenerating: false });
+      useActivityStore.getState().removeActivity("script-generation");
     }
   },
 
   generateForAlert: async (alertType: string, alertDetails: unknown[]) => {
     set({ isGenerating: true, currentScript: null, deployResult: null });
+    useActivityStore.getState().addActivity("alert-remediation");
     try {
       const res = await fetch("/api/remediation/generate-for-alert", {
         method: "POST",
@@ -90,6 +94,7 @@ export const useRemediationStore = create<RemediationState>()(
       console.error("Alert remediation generation failed:", msg);
     } finally {
       set({ isGenerating: false });
+      useActivityStore.getState().removeActivity("alert-remediation");
     }
   },
 

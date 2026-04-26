@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Loader2, Search, Monitor } from "lucide-react";
 import { useNavigationStore } from "../stores/navigationStore.ts";
+import { useActivity } from "../hooks/useActivity.ts";
 
 export default function QueryBuilderPanel() {
   const [query, setQuery] = useState("");
@@ -9,6 +10,7 @@ export default function QueryBuilderPanel() {
   const [totalCount, setTotalCount] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const autoRunRef = useRef(false);
+  const { wrap } = useActivity("query-builder");
 
   // Auto-fill and auto-run from cross-panel navigation
   const pendingNav = useNavigationStore((s) => s.pendingNavigation);
@@ -32,16 +34,18 @@ export default function QueryBuilderPanel() {
   const executeQuery = async (q: string) => {
     if (!q.trim() || isLoading) return;
     setIsLoading(true); setFilter(null); setDevices([]);
-    try {
-      const res = await fetch("/api/query-builder", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: q.trim() }),
-      });
-      const data = await res.json();
-      setFilter(data.filter || data.error);
-      setDevices(data.devices || []);
-      setTotalCount(data.totalCount || 0);
-    } catch { /* ignore */ } finally { setIsLoading(false); }
+    await wrap(async () => {
+      try {
+        const res = await fetch("/api/query-builder", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query: q.trim() }),
+        });
+        const data = await res.json();
+        setFilter(data.filter || data.error);
+        setDevices(data.devices || []);
+        setTotalCount(data.totalCount || 0);
+      } catch { /* ignore */ } finally { setIsLoading(false); }
+    });
   };
 
   const runQuery = () => executeQuery(query);

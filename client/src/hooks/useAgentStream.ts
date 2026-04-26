@@ -1,5 +1,6 @@
 import { useCallback, useRef } from "react";
 import { useChatStore } from "../stores/chatStore.ts";
+import { useActivityStore } from "../stores/activityStore.ts";
 
 interface ChatApiResponse {
   response: string;
@@ -35,6 +36,7 @@ export function useAgentStream() {
     addUserMessage(userMessage);
     setStreaming(true);
     setActiveToolCall("processing");
+    useActivityStore.getState().addActivity("agent-chat");
 
     // Build conversation history from store (user + assistant messages only)
     const currentMessages = store.getState().messages;
@@ -73,6 +75,7 @@ export function useAgentStream() {
       setStreaming(false);
       setActiveToolCall(null);
       streamingRef.current = false;
+      useActivityStore.getState().removeActivity("agent-chat");
     }
   }, []);
 
