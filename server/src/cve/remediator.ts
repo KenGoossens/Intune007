@@ -177,8 +177,9 @@ Return ONLY the JSON, no markdown.`,
 
 /**
  * Execute an approved remediation action via Graph API.
+ * If targetGroupId is provided, the created policy/script is automatically assigned.
  */
-export async function executeRemediationAction(actionId: number): Promise<RemediationAction> {
+export async function executeRemediationAction(actionId: number, targetGroupId?: string): Promise<RemediationAction> {
   const db = getDb();
   const row = db.prepare("SELECT * FROM remediation_actions WHERE id = ?").get(actionId) as Record<string, unknown> | undefined;
 
@@ -199,14 +200,18 @@ export async function executeRemediationAction(actionId: number): Promise<Remedi
 
     switch (actionType) {
       case "compliance_policy": {
-        // Create the compliance policy
         const policy = await createCompliancePolicy(payload);
-        resultMessage = `Compliance policy "${policy.displayName}" created (ID: ${policy.id}). Assign to a group to enforce.`;
+        const policyId = String(policy.id);
+        if (targetGroupId) {
+          await assignCompliancePolicy(policyId, [targetGroupId]);
+          resultMessage = `Compliance policy "${policy.displayName}" created AND assigned to group ${targetGroupId}.`;
+        } else {
+          resultMessage = `Compliance policy "${policy.displayName}" created (ID: ${policyId}). Not assigned — no target group specified.`;
+        }
         break;
       }
 
       case "remediation_script": {
-        // Create and deploy the Proactive Remediation
         const detectionBase64 = Buffer.from(payload.detectionScript || "exit 0", "utf-8").toString("base64");
         const remediationBase64 = Buffer.from(payload.remediationScript || "exit 0", "utf-8").toString("base64");
 
@@ -219,12 +224,17 @@ export async function executeRemediationAction(actionId: number): Promise<Remedi
           enforceSignatureCheck: false,
           runAs32Bit: false,
         });
-        resultMessage = `Proactive Remediation "${script.displayName}" created (ID: ${script.id}). Assign to a group to deploy.`;
+        const scriptId = String(script.id);
+        if (targetGroupId) {
+          await assignRemediationScript(scriptId, targetGroupId);
+          resultMessage = `Proactive Remediation "${script.displayName}" created AND assigned to group ${targetGroupId}.`;
+        } else {
+          resultMessage = `Proactive Remediation "${script.displayName}" created (ID: ${scriptId}). Not assigned — no target group specified.`;
+        }
         break;
       }
 
       case "expedite_update": {
-        // Create a Windows Update expedite policy
         const client = getGraphClient();
         const updatePolicy = await client
           .api("https://graph.microsoft.com/beta/deviceManagement/windowsQualityUpdatePolicies")
@@ -233,7 +243,26 @@ export async function executeRemediationAction(actionId: number): Promise<Remedi
             description: payload.description || `Expedited update for ${cveId}`,
             hotpatchEnabled: false,
           });
-        resultMessage = `Quality update policy created (ID: ${updatePolicy.id}). Assign to expedite the update.`;
+        const updatePolicyId = String(updatePolicy.id);
+        if (targetGroupId) {
+          try {
+            await client
+              .api(`https://graph.microsoft.com/beta/deviceManagement/windowsQualityUpdatePolicies/${updatePolicyId}/assign`)
+              .post({
+                assignments: [{
+                  target: {
+                    "@odata.type": "#microsoft.graph.groupAssignmentTarget",
+                    groupId: targetGroupId,
+                  },
+                }],
+              });
+            resultMessage = `Quality update policy created AND assigned to group ${targetGroupId}. Devices will receive the expedited update.`;
+          } catch {
+            resultMessage = `Quality update policy created (ID: ${updatePolicyId}). Assignment failed — assign manually in Intune.`;
+          }
+        } else {
+          resultMessage = `Quality update policy created (ID: ${updatePolicyId}). Not assigned — no target group specified.`;
+        }
         break;
       }
 

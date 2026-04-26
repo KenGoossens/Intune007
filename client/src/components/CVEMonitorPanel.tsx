@@ -226,17 +226,37 @@ function PrepareRemediationButton({ cveId, description, severity, remediationTyp
   const [state, setState] = useState<"idle" | "preparing" | "ready" | "executing" | "done" | "error">("idle");
   const [action, setAction] = useState<Record<string, unknown> | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [targetGroupId, setTargetGroupId] = useState("");
+  const [groups, setGroups] = useState<Array<{ id: string; name: string }>>([]);
+
+  const loadGroups = async () => {
+    if (groups.length > 0) return;
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: "list security groups", history: [] }),
+      });
+      const data = await res.json();
+      const groupData = (data.toolResults || []).flatMap((t: Record<string, unknown>) => (t.data || []) as Array<Record<string, unknown>>);
+      const parsed = groupData.filter((g: Record<string, unknown>) => g.id && g.displayName).map((g: Record<string, unknown>) => ({ id: String(g.id), name: String(g.displayName) }));
+      if (parsed.length > 0) setGroups(parsed);
+    } catch { /* skip */ }
+  };
 
   const prepare = async () => {
     setState("preparing");
     useActivityStore.getState().addActivity("cve-remediate");
     try {
-      const res = await fetch(`/api/cve/${encodeURIComponent(cveId)}/prepare`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ description, severity, suggestedType: remediationType || "update" }),
-      });
-      const data = await res.json();
+      const [actionRes] = await Promise.all([
+        fetch(`/api/cve/${encodeURIComponent(cveId)}/prepare`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ description, severity, suggestedType: remediationType || "update" }),
+        }),
+        loadGroups(),
+      ]);
+      const data = await actionRes.json();
       setAction(data);
       setState("ready");
     } catch {
@@ -252,7 +272,11 @@ function PrepareRemediationButton({ cveId, description, severity, remediationTyp
     setState("executing");
     useActivityStore.getState().addActivity("cve-execute");
     try {
-      const res = await fetch(`/api/cve/actions/${action.id}/approve`, { method: "POST" });
+      const res = await fetch(`/api/cve/actions/${action.id}/approve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ targetGroupId: targetGroupId || undefined }),
+      });
       const data = await res.json();
       if (data.status === "completed") {
         setState("done");
@@ -301,6 +325,31 @@ function PrepareRemediationButton({ cveId, description, severity, remediationTyp
         </div>
         <p className="text-[10px] text-gray-300">{String(action.description)}</p>
         <div className="text-[10px] text-gray-500">Type: {String(action.actionType)} · Status: awaiting approval</div>
+
+        {/* Target group selector */}
+        <div className="flex items-center gap-2">
+          <label className="text-[10px] text-gray-400 shrink-0">Assign to group:</label>
+          {groups.length > 0 ? (
+            <select
+              value={targetGroupId}
+              onChange={(e) => setTargetGroupId(e.target.value)}
+              className="flex-1 bg-gray-800 text-gray-300 text-[10px] rounded px-2 py-1 border border-gray-700 focus:border-brand-500 focus:outline-none"
+            >
+              <option value="">— No assignment (create only) —</option>
+              {groups.map((g) => (
+                <option key={g.id} value={g.id}>{g.name}</option>
+              ))}
+            </select>
+          ) : (
+            <input
+              value={targetGroupId}
+              onChange={(e) => setTargetGroupId(e.target.value)}
+              placeholder="Paste group ID (optional)"
+              className="flex-1 bg-gray-800 text-gray-300 text-[10px] rounded px-2 py-1 border border-gray-700 focus:border-brand-500 focus:outline-none"
+            />
+          )}
+        </div>
+
         <div className="flex items-center gap-1.5">
           <button onClick={approve}
             className="flex items-center gap-1 px-3 py-1.5 text-[10px] font-semibold rounded bg-green-600 hover:bg-green-700 text-white transition-colors">

@@ -76,8 +76,9 @@ router.post("/:cveId/prepare", async (req: Request, res: Response) => {
 
 /** POST /api/cve/actions/:actionId/approve — Approve and execute a remediation action */
 router.post("/actions/:actionId/approve", async (req: Request, res: Response) => {
+  const { targetGroupId } = req.body;
   try {
-    const result = await executeRemediationAction(parseInt(String(req.params.actionId), 10));
+    const result = await executeRemediationAction(parseInt(String(req.params.actionId), 10), targetGroupId);
     res.json(result);
   } catch (err: unknown) {
     res.status(500).json({ error: sanitizeErrorMessage(err instanceof Error ? err.message : String(err)) });
