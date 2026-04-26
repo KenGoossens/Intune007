@@ -6,6 +6,7 @@ import {
   MemoryStick, ChevronDown, ChevronRight, Wrench, Zap, RotateCcw, Plane,
 } from "lucide-react";
 import { useNavigationStore } from "../stores/navigationStore.ts";
+import { useActivityStore } from "../stores/activityStore.ts";
 
 interface DeviceCard {
   identity: Record<string, unknown>;
@@ -244,6 +245,7 @@ export default function DeviceCardPanel() {
   const searchDevice = useCallback(async () => {
     if (!deviceName.trim()) return;
     setIsLoading(true); setError(null); setCard(null); setDeviceId(null);
+    useActivityStore.getState().addActivity("device-card");
     // Reset drill-downs
     setShowApps(false); setApps(null); setShowProfiles(false); setProfiles(null);
     setShowCompliance(false); setComplianceDetails(null); setAppFilter("");
@@ -264,7 +266,7 @@ export default function DeviceCardPanel() {
       } catch (err) {
         setError(err instanceof Error ? err.message : "Device not found");
       }
-    } finally { setIsLoading(false); }
+    } finally { setIsLoading(false); useActivityStore.getState().removeActivity("device-card"); }
   }, [deviceName]);
 
   const loadApps = async () => {
