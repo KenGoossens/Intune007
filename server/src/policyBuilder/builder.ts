@@ -39,7 +39,6 @@ Windows 10/11 Compliance (always include these unless explicitly excluded):
 - secureBootEnabled: true (CIS 1.1.2 — UEFI Secure Boot)
 - codeIntegrityEnabled: true (CIS 1.1.3 — Code integrity validation)
 - storageRequireEncryption: true (NIST — Data-at-rest encryption)
-- requireHealthyDeviceReport: true (Device Health Attestation)
 - earlyLaunchAntiMalwareDriverEnabled: true (ELAM protection)
 - passwordRequired: true
 - passwordBlockSimple: true (Block "1234", "password", etc.)
@@ -91,6 +90,13 @@ IMPORTANT RULES:
 5. Do NOT include scheduledActionsForRule — added automatically.
 6. When the user says "secure", "hardened", or "strict" — enable EVERY security setting at maximum strength.
 7. When the user says "basic" or "standard" — still enable core security (encryption, password, antimalware) but use moderate values.
+8. NEVER include these properties — they require MAA (Azure Attestation) which is not enabled on most tenants:
+   - requireHealthyDeviceReport (causes "MAA Windows 11 settings Feature not enabled" error)
+   - configurationManagerComplianceRequired
+   - memoryIntegrityEnabled
+   - kernelDmaProtectionEnabled
+   - virtualizationBasedSecurityEnabled
+   - firmwareProtectionEnabled
 
 Return JSON with these fields:
 {

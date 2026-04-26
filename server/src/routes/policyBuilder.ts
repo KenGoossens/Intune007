@@ -53,10 +53,24 @@ router.post("/deploy", async (req: Request, res: Response) => {
   try {
     let result: Record<string, unknown>;
 
+    // Strip MAA/attestation properties that require tenant feature flags
+    const MAA_PROPERTIES = [
+      "requireHealthyDeviceReport",
+      "configurationManagerComplianceRequired",
+      "memoryIntegrityEnabled",
+      "kernelDmaProtectionEnabled",
+      "virtualizationBasedSecurityEnabled",
+      "firmwareProtectionEnabled",
+    ];
+    const body = { ...policy.fullBody };
+    for (const prop of MAA_PROPERTIES) {
+      delete body[prop];
+    }
+
     if (policy.policyType === "configuration") {
-      result = await createConfigurationProfile(policy.fullBody);
+      result = await createConfigurationProfile(body);
     } else {
-      result = await createCompliancePolicy(policy.fullBody);
+      result = await createCompliancePolicy(body);
     }
 
     res.json({
