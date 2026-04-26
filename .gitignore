@@ -5,6 +5,16 @@ dist/
 *.env.development
 .env.*.local
 
+# SQLite databases (contain tenant-specific data)
+server/data/
+server/src/data/
+*.db
+*.db-shm
+*.db-wal
+
+# Azure Functions local settings (contains secrets)
+azure-functions/local.settings.json
+
 # Build outputs
 server/dist/
 client/dist/
