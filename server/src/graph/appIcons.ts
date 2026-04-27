@@ -197,6 +197,24 @@ export async function searchIcon(appName: string, publisher?: string): Promise<I
     return { found: false, source: "none", domain: undefined };
   }
 
+  // Build slug for thesvg.org
+  const svgSlug = appName
+    .toLowerCase()
+    .replace(/\s*\d+\.\d+.*$/, "")
+    .replace(/\s*\(.*\)$/, "")
+    .replace(/[^a-z0-9\s-]/g, "")
+    .trim()
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-");
+
+  // Source 0: theSVG.org — 5,600+ brand SVG icons (best quality)
+  const theSvg = await fetchIconAsBase64(
+    `https://cdn.jsdelivr.net/gh/glincker/thesvg@main/public/icons/${svgSlug}/default.svg`, 100
+  );
+  if (theSvg && theSvg.sizeBytes > 100) {
+    return { found: true, source: "theSVG.org", domain, base64: theSvg.base64, mimeType: theSvg.mimeType, sizeBytes: theSvg.sizeBytes };
+  }
+
   // Source 1: Google Favicon API at 128px (high quality for well-known sites)
   const google128 = await fetchIconAsBase64(
     `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=128`, 200
@@ -274,7 +292,19 @@ export async function searchIconWithProgress(
 
   onProgress("domain", "success", `Resolved domain: ${domain}`);
 
+  // Build thesvg.org slug from app name (e.g., "7-Zip 23.00 (x64)" → "7zip", "Microsoft Edge" → "microsoft-edge")
+  const svgSlug = appName
+    .toLowerCase()
+    .replace(/\s*\d+\.\d+.*$/, "")       // strip version numbers
+    .replace(/\s*\(.*\)$/, "")            // strip parenthetical like "(x64 edition)"
+    .replace(/[^a-z0-9\s-]/g, "")         // remove special chars
+    .trim()
+    .replace(/\s+/g, "-")                 // spaces to hyphens
+    .replace(/-+/g, "-");                 // collapse multiple hyphens
+
   const sources: Array<{ name: string; url: string; minBytes: number }> = [
+    // thesvg.org — 5,600+ brand SVG icons, highest quality
+    { name: "theSVG.org", url: `https://cdn.jsdelivr.net/gh/glincker/thesvg@main/public/icons/${svgSlug}/default.svg`, minBytes: 100 },
     { name: "Google Favicon (128px)", url: `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=128`, minBytes: 500 },
     { name: "Clearbit Logo", url: `https://logo.clearbit.com/${encodeURIComponent(domain)}?size=128`, minBytes: 300 },
     { name: "DuckDuckGo Icons", url: `https://icons.duckduckgo.com/ip3/${encodeURIComponent(domain)}.ico`, minBytes: 100 },
