@@ -82,6 +82,11 @@ const TOOL_PANEL_MAP: Record<string, { panel: TargetPanel; deviceNameArg?: strin
   // Reports
   generate_report: { panel: "data" },
 
+  // App Management actions → App Health (refresh after changes)
+  remove_app: { panel: "appHealth" },
+  rename_app: { panel: "appHealth" },
+  bulk_rename_apps: { panel: "appHealth" },
+
   // CVE Monitor
   get_cve_status: { panel: "cveMonitor" as TargetPanel },
   get_cve_list: { panel: "cveMonitor" as TargetPanel },

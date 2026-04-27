@@ -80,6 +80,53 @@ export interface ToolResult {
 }
 
 /**
+ * Poll device status after an action to provide real-time feedback.
+ * Waits `delayMs`, then checks if the device responded.
+ */
+async function pollDeviceStatus(deviceId: string, delayMs: number): Promise<{
+  responded: boolean;
+  lastSyncDateTime: string;
+  complianceState: string;
+  deviceName: string;
+  message: string;
+}> {
+  // Get pre-action state
+  let preSyncTime = "";
+  try {
+    const pre = await getDeviceDetails(deviceId);
+    preSyncTime = String(pre.lastSyncDateTime || "");
+  } catch { /* skip */ }
+
+  // Wait for the action to propagate
+  await new Promise((resolve) => setTimeout(resolve, delayMs));
+
+  // Check post-action state
+  try {
+    const post = await getDeviceDetails(deviceId);
+    const postSyncTime = String(post.lastSyncDateTime || "");
+    const responded = postSyncTime !== preSyncTime && postSyncTime > preSyncTime;
+
+    return {
+      responded,
+      lastSyncDateTime: postSyncTime,
+      complianceState: String(post.complianceState || "unknown"),
+      deviceName: String(post.deviceName || ""),
+      message: responded
+        ? `Device responded! Last sync updated to ${new Date(postSyncTime).toLocaleString()}`
+        : `Device has not checked in yet (last sync: ${preSyncTime ? new Date(preSyncTime).toLocaleString() : "unknown"}). The action is queued and will execute on next check-in.`,
+    };
+  } catch {
+    return {
+      responded: false,
+      lastSyncDateTime: preSyncTime,
+      complianceState: "unknown",
+      deviceName: "",
+      message: "Could not verify device status. The action was sent but confirmation is unavailable.",
+    };
+  }
+}
+
+/**
  * Dispatches a tool call to the corresponding Graph API function.
  * Returns the data array and total count, or an error message.
  */
@@ -105,16 +152,26 @@ export async function executeTool(
         return { data: [device], totalCount: 1 };
       }
 
-      // ─── Device Actions ────────────────────────────────────────
+      // ─── Device Actions (with post-action status monitoring) ────
 
       case "sync_device": {
         const result = await syncDevice(args.deviceId);
-        return { data: [result], totalCount: 1 };
+        // Post-action check: wait 5s then check if sync was received
+        const syncCheck = await pollDeviceStatus(args.deviceId, 5000);
+        return { data: [{
+          ...result,
+          postCheck: syncCheck,
+        }], totalCount: 1 };
       }
 
       case "restart_device": {
         const result = await restartDevice(args.deviceId);
-        return { data: [result], totalCount: 1 };
+        // Post-action check: wait 8s then check device status
+        const restartCheck = await pollDeviceStatus(args.deviceId, 8000);
+        return { data: [{
+          ...result,
+          postCheck: restartCheck,
+        }], totalCount: 1 };
       }
 
       case "lock_device": {
