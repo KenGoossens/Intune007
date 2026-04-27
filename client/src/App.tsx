@@ -34,28 +34,28 @@ type ActivePanel = "alerts" | "data" | "remediation" | "analytics" | "policies" 
 interface NavItem {
   id: ActivePanel;
   label: string;
-  section: "core" | "operations" | "insights";
+  section: "featured" | "core" | "operations" | "insights";
 }
 
 const NAV_ITEMS: NavItem[] = [
+  { id: "cveMonitor",         label: "CVE Monitor",         section: "featured" },
+  { id: "forecast",           label: "Compliance Forecast", section: "featured" },
+  { id: "policyBuilder",      label: "Policy Builder",      section: "featured" },
+  { id: "appHealth",          label: "App Health",           section: "featured" },
+  { id: "autopilotReadiness", label: "Autopilot Readiness", section: "featured" },
   { id: "alerts",             label: "Alerts",              section: "core" },
   { id: "data",               label: "Data",                section: "core" },
   { id: "deviceCard",          label: "Device Card",         section: "core" },
   { id: "queryBuilder",       label: "Query Builder",       section: "core" },
   { id: "reportGenerator",    label: "Report Generator",   section: "core" },
   { id: "policies",           label: "Policies",            section: "operations" },
-  { id: "policyBuilder",      label: "Policy Builder",      section: "operations" },
   { id: "policyDiff",         label: "Policy Diff",         section: "operations" },
   { id: "remediation",        label: "Remediation",         section: "operations" },
   { id: "troubleshooter",     label: "Troubleshooter",      section: "operations" },
   { id: "logs",               label: "Logs",                section: "operations" },
   { id: "insights",           label: "Insights",            section: "insights" },
   { id: "riskScores",         label: "Risk Scores",         section: "insights" },
-  { id: "forecast",           label: "Compliance Forecast", section: "insights" },
   { id: "securityPosture",    label: "Security Posture",    section: "insights" },
-  { id: "cveMonitor",         label: "CVE Monitor",         section: "insights" },
-  { id: "appHealth",          label: "App Health",           section: "insights" },
-  { id: "autopilotReadiness", label: "Autopilot Readiness", section: "insights" },
   { id: "baselines",          label: "Config Baselines",    section: "insights" },
   { id: "timeline",           label: "Device Timeline",     section: "insights" },
   { id: "tasks",              label: "Tasks",               section: "insights" },
@@ -63,6 +63,7 @@ const NAV_ITEMS: NavItem[] = [
 ];
 
 const SECTION_LABELS: Record<string, string> = {
+  featured: "Featured",
   core: "Core",
   operations: "Operations",
   insights: "Insights",
@@ -143,9 +144,9 @@ export default function App() {
 
         {/* Nav sections */}
         <div className="flex-1 overflow-y-auto py-3 px-3">
-          {(["core", "operations", "insights"] as const).map((section) => (
+          {(["featured", "core", "operations", "insights"] as const).map((section) => (
             <div key={section} className="mb-4">
-              <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider px-2 mb-1.5">
+              <p className={`text-[10px] font-semibold uppercase tracking-wider px-2 mb-1.5 ${section === "featured" ? "text-brand-400" : "text-gray-500"}`}>
                 {SECTION_LABELS[section]}
               </p>
               {NAV_ITEMS.filter((n) => n.section === section).map((item) => (
@@ -155,10 +156,15 @@ export default function App() {
                   className={`w-full flex items-center justify-between px-2.5 py-[7px] rounded-md text-[13px] font-medium transition-colors mb-0.5 ${
                     activePanel === item.id
                       ? "bg-brand-600/15 text-brand-400"
+                      : item.section === "featured"
+                      ? "text-gray-300 hover:text-white hover:bg-brand-600/10"
                       : "text-gray-400 hover:text-gray-200 hover:bg-gray-800/60"
                   }`}
                 >
-                  {item.label}
+                  <span className="flex items-center gap-1.5">
+                    {item.section === "featured" && <span className="text-brand-400 text-[9px]">★</span>}
+                    {item.label}
+                  </span>
                   {item.id === "alerts" && unacknowledgedCount > 0 && (
                     <span
                       className={`min-w-[18px] h-[18px] flex items-center justify-center px-1 rounded-full text-[10px] font-bold ${
