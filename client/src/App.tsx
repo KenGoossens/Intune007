@@ -22,48 +22,52 @@ import SecurityPosturePanel from "./components/SecurityPosturePanel.tsx";
 import ReportGeneratorPanel from "./components/ReportGeneratorPanel.tsx";
 import DeviceCardPanel from "./components/DeviceCardPanel.tsx";
 import CVEMonitorPanel from "./components/CVEMonitorPanel.tsx";
+import SettingsPanel from "./components/SettingsPanel.tsx";
 import SparkleOverlay from "./components/SparkleOverlay.tsx";
 import { GripVertical, Shield, MessageSquare, X } from "lucide-react";
 import { useAlertStore } from "./stores/alertStore.ts";
 import { useNavigationStore } from "./stores/navigationStore.ts";
 import { useChatStore } from "./stores/chatStore.ts";
 import { useActivityStore } from "./stores/activityStore.ts";
+import { useSettingsStore } from "./stores/settingsStore.ts";
 
-type ActivePanel = "alerts" | "data" | "remediation" | "analytics" | "policies" | "policyBuilder" | "policyDiff" | "riskScores" | "troubleshooter" | "forecast" | "queryBuilder" | "appHealth" | "autopilotReadiness" | "baselines" | "timeline" | "securityPosture" | "reportGenerator" | "deviceCard" | "cveMonitor" | "logs" | "tasks" | "insights";
+type ActivePanel = "alerts" | "data" | "remediation" | "analytics" | "policies" | "policyBuilder" | "policyDiff" | "riskScores" | "troubleshooter" | "forecast" | "queryBuilder" | "appHealth" | "autopilotReadiness" | "baselines" | "timeline" | "securityPosture" | "reportGenerator" | "deviceCard" | "cveMonitor" | "logs" | "tasks" | "insights" | "settings";
 
 interface NavItem {
   id: ActivePanel;
   label: string;
-  section: "featured" | "core" | "operations" | "insights";
+  section: "core" | "operations" | "insights";
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { id: "cveMonitor",         label: "CVE Monitor",         section: "featured" },
-  { id: "forecast",           label: "Compliance Forecast", section: "featured" },
-  { id: "policyBuilder",      label: "Policy Builder",      section: "featured" },
-  { id: "appHealth",          label: "App Health",           section: "featured" },
-  { id: "autopilotReadiness", label: "Autopilot Readiness", section: "featured" },
+  // Core — alphabetical
   { id: "alerts",             label: "Alerts",              section: "core" },
   { id: "data",               label: "Data",                section: "core" },
-  { id: "deviceCard",          label: "Device Card",         section: "core" },
+  { id: "deviceCard",         label: "Device Card",         section: "core" },
   { id: "queryBuilder",       label: "Query Builder",       section: "core" },
-  { id: "reportGenerator",    label: "Report Generator",   section: "core" },
+  { id: "reportGenerator",    label: "Report Generator",    section: "core" },
+  // Operations — alphabetical
+  { id: "logs",               label: "Logs",                section: "operations" },
   { id: "policies",           label: "Policies",            section: "operations" },
+  { id: "policyBuilder",      label: "Policy Builder",      section: "operations" },
   { id: "policyDiff",         label: "Policy Diff",         section: "operations" },
   { id: "remediation",        label: "Remediation",         section: "operations" },
   { id: "troubleshooter",     label: "Troubleshooter",      section: "operations" },
-  { id: "logs",               label: "Logs",                section: "operations" },
+  // Insights — alphabetical
+  { id: "analytics",          label: "Analytics",           section: "insights" },
+  { id: "appHealth",          label: "App Health",          section: "insights" },
+  { id: "autopilotReadiness", label: "Autopilot",           section: "insights" },
+  { id: "baselines",          label: "Config Baselines",    section: "insights" },
+  { id: "cveMonitor",         label: "CVE Monitor",         section: "insights" },
+  { id: "forecast",           label: "Compliance Forecast", section: "insights" },
   { id: "insights",           label: "Insights",            section: "insights" },
   { id: "riskScores",         label: "Risk Scores",         section: "insights" },
   { id: "securityPosture",    label: "Security Posture",    section: "insights" },
-  { id: "baselines",          label: "Config Baselines",    section: "insights" },
-  { id: "timeline",           label: "Device Timeline",     section: "insights" },
   { id: "tasks",              label: "Tasks",               section: "insights" },
-  { id: "analytics",          label: "Analytics",           section: "insights" },
+  { id: "timeline",           label: "Device Timeline",     section: "insights" },
 ];
 
 const SECTION_LABELS: Record<string, string> = {
-  featured: "Featured",
   core: "Core",
   operations: "Operations",
   insights: "Insights",
@@ -94,6 +98,7 @@ export default function App() {
   );
   const isStreaming = useChatStore((s) => s.isStreaming);
   const isAgentActive = useActivityStore((s) => s.isActive);
+  const isPanelVisible = useSettingsStore((s) => s.isPanelVisible);
 
   const handleMouseDown = useCallback(() => {
     isDragging.current = true;
@@ -144,25 +149,25 @@ export default function App() {
 
         {/* Nav sections */}
         <div className="flex-1 overflow-y-auto py-3 px-3">
-          {(["featured", "core", "operations", "insights"] as const).map((section) => (
+          {(["core", "operations", "insights"] as const).map((section) => {
+            const sectionItems = NAV_ITEMS.filter((n) => n.section === section && isPanelVisible(n.id));
+            if (sectionItems.length === 0) return null;
+            return (
             <div key={section} className="mb-4">
-              <p className={`text-[10px] font-semibold uppercase tracking-wider px-2 mb-1.5 ${section === "featured" ? "text-brand-400" : "text-gray-500"}`}>
+              <p className="text-[10px] font-semibold uppercase tracking-wider px-2 mb-1.5 text-gray-500">
                 {SECTION_LABELS[section]}
               </p>
-              {NAV_ITEMS.filter((n) => n.section === section).map((item) => (
+              {sectionItems.map((item) => (
                 <button
                   key={item.id}
                   onClick={() => setActivePanel(item.id)}
                   className={`w-full flex items-center justify-between px-2.5 py-[7px] rounded-md text-[13px] font-medium transition-colors mb-0.5 ${
                     activePanel === item.id
                       ? "bg-brand-600/15 text-brand-400"
-                      : item.section === "featured"
-                      ? "text-gray-300 hover:text-white hover:bg-brand-600/10"
                       : "text-gray-400 hover:text-gray-200 hover:bg-gray-800/60"
                   }`}
                 >
                   <span className="flex items-center gap-1.5">
-                    {item.section === "featured" && <span className="text-brand-400 text-[9px]">★</span>}
                     {item.label}
                   </span>
                   {item.id === "alerts" && unacknowledgedCount > 0 && (
@@ -179,11 +184,23 @@ export default function App() {
                 </button>
               ))}
             </div>
-          ))}
+            );
+          })}
         </div>
 
-        {/* Agent toggle at bottom */}
-        <div className="px-3 pb-3">
+        {/* Settings + Agent toggle at bottom */}
+        <div className="px-3 pb-3 space-y-1">
+          <button
+            onClick={() => setActivePanel("settings")}
+            className={`w-full flex items-center gap-2 px-2.5 py-[7px] rounded-md text-[13px] font-medium transition-colors ${
+              activePanel === "settings"
+                ? "bg-brand-600/15 text-brand-400"
+                : "text-gray-400 hover:text-gray-200 hover:bg-gray-800/60"
+            }`}
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><circle cx={12} cy={12} r={3} /></svg>
+            Settings
+          </button>
           <button
             onClick={() => setChatOpen(!chatOpen)}
             className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-md text-[13px] font-medium transition-colors ${
@@ -249,6 +266,8 @@ export default function App() {
             <TasksPanel />
           ) : activePanel === "insights" ? (
             <InsightsPanel />
+          ) : activePanel === "settings" ? (
+            <SettingsPanel />
           ) : (
             <DataPanel />
           )}
