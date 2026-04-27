@@ -228,6 +228,8 @@ function PrepareRemediationButton({ cveId, description, severity, remediationTyp
   const [error, setError] = useState<string | null>(null);
   const [targetGroupId, setTargetGroupId] = useState("");
   const [groups, setGroups] = useState<Array<{ id: string; name: string }>>([]);
+  const [groupInfo, setGroupInfo] = useState<{ displayName: string; isDynamic: boolean; totalMembers: number; deviceMembers: number } | null>(null);
+  const [groupInfoLoading, setGroupInfoLoading] = useState(false);
 
   const loadGroups = async () => {
     if (groups.length > 0) return;
@@ -327,26 +329,63 @@ function PrepareRemediationButton({ cveId, description, severity, remediationTyp
         <div className="text-[10px] text-gray-500">Type: {String(action.actionType)} · Status: awaiting approval</div>
 
         {/* Target group selector */}
-        <div className="flex items-center gap-2">
-          <label className="text-[10px] text-gray-400 shrink-0">Assign to group:</label>
-          {groups.length > 0 ? (
-            <select
-              value={targetGroupId}
-              onChange={(e) => setTargetGroupId(e.target.value)}
-              className="flex-1 bg-gray-800 text-gray-300 text-[10px] rounded px-2 py-1 border border-gray-700 focus:border-brand-500 focus:outline-none"
-            >
-              <option value="">— No assignment (create only) —</option>
-              {groups.map((g) => (
-                <option key={g.id} value={g.id}>{g.name}</option>
-              ))}
-            </select>
-          ) : (
-            <input
-              value={targetGroupId}
-              onChange={(e) => setTargetGroupId(e.target.value)}
-              placeholder="Paste group ID (optional)"
-              className="flex-1 bg-gray-800 text-gray-300 text-[10px] rounded px-2 py-1 border border-gray-700 focus:border-brand-500 focus:outline-none"
-            />
+        <div>
+          <div className="flex items-center gap-2">
+            <label className="text-[10px] text-gray-400 shrink-0">Assign to group:</label>
+            {groups.length > 0 ? (
+              <select
+                value={targetGroupId}
+                onChange={async (e) => {
+                  const gid = e.target.value;
+                  setTargetGroupId(gid);
+                  setGroupInfo(null);
+                  if (gid) {
+                    setGroupInfoLoading(true);
+                    try {
+                      const res = await fetch(`/api/cve/group-info/${gid}`);
+                      if (res.ok) setGroupInfo(await res.json());
+                    } catch { /* skip */ }
+                    finally { setGroupInfoLoading(false); }
+                  }
+                }}
+                className="flex-1 bg-gray-800 text-gray-300 text-[10px] rounded px-2 py-1 border border-gray-700 focus:border-brand-500 focus:outline-none"
+              >
+                <option value="">— No assignment (create only) —</option>
+                {groups.map((g) => (
+                  <option key={g.id} value={g.id}>{g.name}</option>
+                ))}
+              </select>
+            ) : (
+              <input
+                value={targetGroupId}
+                onChange={(e) => { setTargetGroupId(e.target.value); setGroupInfo(null); }}
+                placeholder="Paste group ID (optional)"
+                className="flex-1 bg-gray-800 text-gray-300 text-[10px] rounded px-2 py-1 border border-gray-700 focus:border-brand-500 focus:outline-none"
+              />
+            )}
+          </div>
+          {/* Pre-flight: group member count */}
+          {groupInfoLoading && (
+            <div className="flex items-center gap-1 mt-1 text-[10px] text-gray-500">
+              <Loader2 size={10} className="animate-spin" /> Loading group info...
+            </div>
+          )}
+          {groupInfo && (
+            <div className="mt-1.5 px-2 py-1.5 rounded bg-gray-800/60 border border-gray-700/40 text-[10px]">
+              <div className="flex items-center gap-3">
+                <span className="text-gray-400">{groupInfo.displayName}</span>
+                <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${groupInfo.isDynamic ? "bg-blue-500/15 text-blue-400" : "bg-gray-700 text-gray-400"}`}>
+                  {groupInfo.isDynamic ? "Dynamic" : "Assigned"}
+                </span>
+              </div>
+              <div className="flex items-center gap-3 mt-1 text-gray-300">
+                <span><strong>{groupInfo.deviceMembers}</strong> devices</span>
+                <span className="text-gray-500">{groupInfo.totalMembers} total members</span>
+              </div>
+              {groupInfo.deviceMembers === 0 && (
+                <p className="text-[9px] text-yellow-400 mt-1">⚠️ No devices in this group — the remediation won't reach any devices.</p>
+              )}
+            </div>
           )}
         </div>
 

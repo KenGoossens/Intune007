@@ -6,6 +6,7 @@ import { Router, type Request, type Response } from "express";
 import { runCVEScan, getCVEs, getCVEStats, updateCVEStatus } from "../cve/monitor.js";
 import { generateRemediationAction, executeRemediationAction, rejectRemediationAction, getRemediationActions, getPendingActionCount } from "../cve/remediator.js";
 import { sanitizeErrorMessage } from "../security.js";
+import { getGraphClient, fetchWithPagination } from "../graph/client.js";
 
 const router = Router();
 
@@ -101,6 +102,42 @@ router.get("/actions", (req: Request, res: Response) => {
     const status = req.query.status as string | undefined;
     const actions = getRemediationActions({ status });
     res.json({ actions, pending: getPendingActionCount() });
+  } catch (err: unknown) {
+    res.status(500).json({ error: sanitizeErrorMessage(err instanceof Error ? err.message : String(err)) });
+  }
+});
+
+/** GET /api/cve/group-info/:groupId — Pre-flight check: how many devices in a group */
+router.get("/group-info/:groupId", async (req: Request, res: Response) => {
+  const groupId = String(req.params.groupId);
+  try {
+    const client = getGraphClient();
+
+    // Get group details
+    const group = await client.api(`/groups/${groupId}`).select("id,displayName,membershipRule,groupTypes").get();
+
+    // Count members
+    const members = await fetchWithPagination<Record<string, unknown>>(
+      client, `/groups/${groupId}/members`, { select: "id,displayName,deviceId", maxItems: 500 }
+    );
+
+    // Count device members specifically
+    const deviceMembers = members.items.filter((m) => {
+      const type = String(m["@odata.type"] || "");
+      return type.includes("device");
+    });
+
+    const isDynamic = (group.groupTypes || []).includes("DynamicMembership");
+
+    res.json({
+      groupId,
+      displayName: group.displayName,
+      isDynamic,
+      membershipRule: group.membershipRule || null,
+      totalMembers: members.items.length,
+      deviceMembers: deviceMembers.length,
+      userMembers: members.items.length - deviceMembers.length,
+    });
   } catch (err: unknown) {
     res.status(500).json({ error: sanitizeErrorMessage(err instanceof Error ? err.message : String(err)) });
   }
