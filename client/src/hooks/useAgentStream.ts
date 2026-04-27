@@ -8,7 +8,7 @@ import { useNavigationStore, type TargetPanel } from "../stores/navigationStore.
  * When the agent calls one of these tools, the UI navigates to the panel
  * so the user sees both the text AND visual output.
  */
-const TOOL_PANEL_MAP: Record<string, { panel: TargetPanel; deviceNameArg?: string }> = {
+const TOOL_PANEL_MAP: Record<string, { panel: TargetPanel; deviceNameArg?: string; query?: boolean }> = {
   get_device_timeline: { panel: "timeline", deviceNameArg: "deviceName" },
   run_troubleshooter: { panel: "troubleshooter", deviceNameArg: "deviceName" },
   get_device_card: { panel: "deviceCard", deviceNameArg: "deviceName" },
@@ -19,6 +19,12 @@ const TOOL_PANEL_MAP: Record<string, { panel: TargetPanel; deviceNameArg?: strin
   run_compliance_forecast: { panel: "forecast" },
   analyze_policies: { panel: "policies" },
   get_learning_stats: { panel: "analytics" },
+  create_compliance_policy: { panel: "policyBuilder" },
+  get_cve_status: { panel: "cveMonitor" as TargetPanel },
+  get_cve_list: { panel: "cveMonitor" as TargetPanel },
+  scan_cves: { panel: "cveMonitor" as TargetPanel },
+  scan_app_icons: { panel: "appHealth" },
+  get_managed_devices: { panel: "data" },
 };
 
 interface ChatApiResponse {
