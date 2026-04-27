@@ -292,10 +292,10 @@ function WelcomeScreen({ onSelect }: { onSelect: (s: string) => void }) {
       label: "Autopilot & Actions",
       icon: "🚀",
       suggestions: [
-        "Check Autopilot readiness for my devices",
+        "List all Autopilot registered devices",
         "Show the device timeline for NB-DUYGU-AI1",
         "Troubleshoot device NB-DUYGU-AI1",
-        "Sync all Windows devices",
+        "Restart device NB-DUYGU-AI1",
         "Generate a report on my Intune environment",
       ],
     },
