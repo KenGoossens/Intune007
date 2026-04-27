@@ -1,6 +1,6 @@
 # Intune007 — License to Manage!
 
-**AI-powered Microsoft Intune management platform** with a conversational agent, 69 tools, 30 interactive UI panels, RAG-powered documentation search, and full Microsoft Graph API integration.
+**AI-powered Microsoft Intune management platform** with a conversational agent, 73 tools, 31 interactive UI panels, RAG-powered documentation search, 24/7 CVE vulnerability monitoring, and full Microsoft Graph API integration.
 
 ---
 
@@ -27,14 +27,15 @@
 
 ## Overview
 
-Intune007 is a full-stack application that connects to Microsoft Intune via the Microsoft Graph API. IT administrators interact through either a **conversational AI agent** (right-docked chat panel) or **30 dedicated dashboard panels** — all fully interactive and interconnected. The agent is powered by comprehensive Intune domain knowledge and RAG-based documentation search from learn.microsoft.com.
+Intune007 is a full-stack application that connects to Microsoft Intune via the Microsoft Graph API. IT administrators interact through either a **conversational AI agent** (right-docked chat panel) or **31 dedicated dashboard panels** — all fully interactive and interconnected. The agent is powered by comprehensive Intune domain knowledge and RAG-based documentation search from learn.microsoft.com.
 
 **Key stats:**
-- 69 agent tools (device management, compliance, apps, security, Autopilot, remediation)
-- 30 UI panels with cross-panel navigation, drill-down, and auto-execution
-- 27 API routes
-- 7 SQLite databases (analytics, history, memory, tasks, learning, baselines, docs)
-- 121 TypeScript source files
+- 73 agent tools (device management, compliance, apps, security, Autopilot, remediation, CVE monitoring)
+- 31 UI panels with cross-panel navigation, drill-down, and auto-execution
+- 28 API routes
+- 8 SQLite databases (analytics, history, memory, tasks, learning, baselines, docs, cve)
+- 126 TypeScript source files
+- 24/7 CVE vulnerability monitoring with AI auto-remediation and admin approval workflow
 - RAG engine indexing 45+ Microsoft Learn documentation pages
 - OWASP-hardened security (rate limiting, input validation, OData injection prevention, prompt injection defense)
 - Golden sparkle particle effects during all agentic operations
@@ -110,12 +111,13 @@ Intune007 is a full-stack application that connects to Microsoft Intune via the 
 | **Risk Scores** | Fleet-wide device risk scoring (0-100) based on compliance, sync age, encryption, OS version, config conflicts. |
 | **Compliance Forecast** | Predict compliance impact of new policy requirements before deploying. |
 | **Security Posture** | Overall security score with compliance rate, encryption rate, stale device rate. Trend charts, device breakdowns with clickable device names, Troubleshoot and Timeline links per device. |
-| **App Health** | App deployment health with real app icons from Intune, detection rates, per-device version tracking. Inline actions: delete app (assignments removed first), find/refresh icon (7-source search with SSE progress + PNG conversion + upload to Intune), filter by All/Detected/Not Detected. **Scan for missing icons (accurate per-app check), bulk rename apps.** |
+| **App Health** | App deployment health with real app icons from Intune, detection rates, per-device version tracking. Inline actions: delete app (assignments removed first), find/refresh icon (7-source search with SSE progress + PNG conversion + upload to Intune), filter by All/Detected/Not Detected. **Scan for missing icons, bulk rename apps, wrong icon feedback with custom URL upload.** |
 | **Autopilot Readiness** | Check readiness by serial number, auto-remediate (group tag, profile assignment), full onboarding pipeline (hash import → processing → group tag → group membership → profile verification). Three collection methods: Azure Function for bare-metal, Proactive Remediation for enrolled devices, CSV import. |
 | **Config Baselines** | Snapshot current configuration state, compare against baselines, detect drift. |
 | **Device Timeline** | Full lifecycle timeline: enrollment, compliance changes, config assignments, sync events. Auto-executes when navigated to with a device name. |
 | **Tasks** | Recurring scheduled agent queries (hourly, daily, weekly). |
 | **Analytics** | Persistent (SQLite-backed) request analytics: token usage, costs, response times, tool usage breakdown, error rates. Survives server restarts. |
+| **CVE Monitor** | 24/7 vulnerability monitoring: fetches CVEs from NVD (NIST) + CISA Known Exploited Vulnerabilities, matches against tenant OS versions and apps, scores relevance (0-100), AI-generates remediation suggestions. **Full auto-remediation with admin approval**: Prepare Auto-Fix → review action → select target group → Approve & Execute → policy/script/update created and assigned via Graph API. Wrong icon feedback with custom URL upload. |
 
 ### AI Agent
 
@@ -285,7 +287,7 @@ Intune007/
 
 ---
 
-## Agent Tools Reference (69 tools)
+## Agent Tools Reference (73 tools)
 
 ### Devices (6)
 Managed devices, device details, device card (50+ fields), device timeline, threat summary, risk scores
@@ -335,9 +337,12 @@ List tenants, switch tenant
 ### Reporting (2)
 Generate report, run troubleshooter
 
+### CVE Monitoring (4)
+Get CVE status, get CVE list (filtered), scan for new CVEs, update CVE status (reviewed/remediated/dismissed)
+
 ---
 
-## API Endpoints (27 routes)
+## API Endpoints (28 routes)
 
 | Method | Path | Description |
 |---|---|---|
@@ -373,6 +378,15 @@ Generate report, run troubleshooter
 | POST | `/api/docs/search` | Search indexed documentation |
 | DELETE | `/api/remediation/scripts/:id` | Delete remediation script from Intune |
 | PATCH | `/api/remediation/scripts/:id` | Update remediation script content |
+| GET | `/api/cve/stats` | CVE monitoring statistics |
+| GET | `/api/cve` | List tracked CVEs (filterable) |
+| POST | `/api/cve/scan` | Trigger manual CVE scan |
+| PATCH | `/api/cve/:cveId/status` | Update CVE status |
+| POST | `/api/cve/:cveId/prepare` | Generate auto-remediation action |
+| POST | `/api/cve/actions/:id/approve` | Approve & execute remediation |
+| POST | `/api/cve/actions/:id/reject` | Reject remediation action |
+| GET | `/api/cve/actions` | List remediation actions |
+| POST | `/api/app-health/upload-icon-url` | Upload icon from custom URL |
 
 ---
 
