@@ -3,10 +3,21 @@ import { getGraphClient, fetchWithPagination } from "../graph/client.js";
 import { remediateAutopilotDevice } from "../autopilot/remediator.js";
 import { onboardAutopilotDevice, getHardwareHashCollectionScript } from "../autopilot/onboarding.js";
 import { deployHashCollector, pollCollectedHashes, processCollectedHashes } from "../autopilot/hashCollector.js";
+import { getAutopilotPipeline } from "../autopilot/pipeline.js";
 import { sanitizeOData, isValidSerialNumber, isValidUUID, sanitizeErrorMessage } from "../security.js";
 
 const router = Router();
 const BETA = "https://graph.microsoft.com/beta";
+
+/** GET /api/autopilot-readiness/pipeline — Full Autopilot lifecycle pipeline status */
+router.get("/pipeline", async (_req: Request, res: Response) => {
+  try {
+    const pipeline = await getAutopilotPipeline();
+    res.json(pipeline);
+  } catch (err: unknown) {
+    res.status(500).json({ error: sanitizeErrorMessage(err instanceof Error ? err.message : String(err)) });
+  }
+});
 
 router.post("/check", async (req: Request, res: Response) => {
   const { serialNumber, deviceName } = req.body;
