@@ -234,15 +234,11 @@ function PrepareRemediationButton({ cveId, description, severity, remediationTyp
   const loadGroups = async () => {
     if (groups.length > 0) return;
     try {
-      const res = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: "list security groups", history: [] }),
-      });
-      const data = await res.json();
-      const groupData = (data.toolResults || []).flatMap((t: Record<string, unknown>) => (t.data || []) as Array<Record<string, unknown>>);
-      const parsed = groupData.filter((g: Record<string, unknown>) => g.id && g.displayName).map((g: Record<string, unknown>) => ({ id: String(g.id), name: String(g.displayName) }));
-      if (parsed.length > 0) setGroups(parsed);
+      const res = await fetch("/api/cve/groups");
+      if (res.ok) {
+        const data = await res.json();
+        setGroups((data.groups || []).map((g: { id: string; name: string }) => ({ id: g.id, name: g.name })));
+      }
     } catch { /* skip */ }
   };
 

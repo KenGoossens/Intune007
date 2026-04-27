@@ -107,6 +107,28 @@ router.get("/actions", (req: Request, res: Response) => {
   }
 });
 
+/** GET /api/cve/groups — List all security groups (sorted alphabetically) for group selector */
+router.get("/groups", async (_req: Request, res: Response) => {
+  try {
+    const client = getGraphClient();
+    const groups = await fetchWithPagination<Record<string, unknown>>(
+      client, "/groups",
+      { select: "id,displayName,groupTypes,securityEnabled", top: 200, orderby: "displayName" }
+    );
+    const sorted = groups.items
+      .filter((g) => g.securityEnabled || (g.groupTypes as string[] || []).includes("DynamicMembership"))
+      .map((g) => ({
+        id: String(g.id),
+        name: String(g.displayName),
+        isDynamic: ((g.groupTypes as string[]) || []).includes("DynamicMembership"),
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    res.json({ groups: sorted });
+  } catch (err: unknown) {
+    res.status(500).json({ error: sanitizeErrorMessage(err instanceof Error ? err.message : String(err)) });
+  }
+});
+
 /** GET /api/cve/group-info/:groupId — Pre-flight check: how many devices in a group */
 router.get("/group-info/:groupId", async (req: Request, res: Response) => {
   const groupId = String(req.params.groupId);
