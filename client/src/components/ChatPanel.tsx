@@ -94,40 +94,7 @@ export default function ChatPanel({ onClose }: { onClose?: () => void }) {
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
         {messages.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-full text-center text-gray-500">
-            <Bot size={48} className="mb-4 text-gray-600" />
-            <h3 className="text-lg font-medium text-gray-300 mb-2">
-              Welcome to Intune007
-            </h3>
-            <p className="text-sm max-w-sm mb-6">
-              Ask me anything about your Intune-managed devices, policies,
-              apps, Conditional Access, and Autopilot.
-            </p>
-            <div className="grid gap-2 w-full max-w-sm">
-              {[
-                "How many managed devices do I have?",
-                "Show me non-compliant devices",
-                "List all Azure AD security groups",
-                "Show recent security alerts",
-                "What apps are deployed?",
-                "Sync a device with Intune",
-                "Show me the audit logs",
-                "Check Windows Update compliance",
-              ].map((suggestion) => (
-                <button
-                  key={suggestion}
-                  onClick={() => {
-                    setInput(suggestion);
-                    inputRef.current?.focus();
-                  }}
-                  className="flex items-center gap-2 text-left text-sm px-3 py-2 rounded-lg bg-gray-800 hover:bg-gray-750 text-gray-300 hover:text-white transition-colors border border-gray-700 hover:border-gray-600"
-                >
-                  <Search size={14} className="text-gray-500 shrink-0" />
-                  {suggestion}
-                </button>
-              ))}
-            </div>
-          </div>
+          <WelcomeScreen onSelect={(s) => { setInput(s); inputRef.current?.focus(); }} />
         )}
 
         {messages.map((msg, i) => (
@@ -283,6 +250,118 @@ function looksLikePowerShell(code: string): boolean {
 }
 
 /** Thumbs up / thumbs down feedback buttons for agent responses */
+/** Categorized welcome screen with rotating suggestions */
+function WelcomeScreen({ onSelect }: { onSelect: (s: string) => void }) {
+  const [category, setCategory] = useState(0);
+
+  const categories = [
+    {
+      label: "Devices & Security",
+      icon: "🛡️",
+      suggestions: [
+        "How many managed devices do I have?",
+        "Show me non-compliant devices",
+        "What is the security posture of my fleet?",
+        "Show device risk scores",
+        "Are there any security alerts?",
+      ],
+    },
+    {
+      label: "Vulnerabilities",
+      icon: "⚠️",
+      suggestions: [
+        "Are there any new CVEs affecting my devices?",
+        "Show me critical vulnerabilities",
+        "Scan for new CVEs now",
+        "What if I require encryption for all devices?",
+        "What vulnerabilities are actively exploited?",
+      ],
+    },
+    {
+      label: "Apps & Policies",
+      icon: "📦",
+      suggestions: [
+        "What apps are deployed?",
+        "How many apps have missing icons?",
+        "Analyze my policy health",
+        "Build a Windows compliance policy with CIS L1 benchmark",
+        "Find and upload the icon for 7-Zip",
+      ],
+    },
+    {
+      label: "Autopilot & Actions",
+      icon: "🚀",
+      suggestions: [
+        "Check Autopilot readiness for my devices",
+        "Show the device timeline for NB-DUYGU-AI1",
+        "Troubleshoot device NB-DUYGU-AI1",
+        "Sync all Windows devices",
+        "Generate a report on my Intune environment",
+      ],
+    },
+    {
+      label: "Knowledge & Help",
+      icon: "📚",
+      suggestions: [
+        "What is the difference between wipe and retire?",
+        "How does Autopilot pre-provisioning work?",
+        "What license do I need for app protection policies?",
+        "How do I set up Conditional Access for MFA?",
+        "What can you do?",
+      ],
+    },
+  ];
+
+  const active = categories[category];
+
+  return (
+    <div className="flex flex-col items-center justify-center h-full text-center px-4">
+      <div className="mb-3">
+        <span className="text-3xl font-black text-brand-400 italic" style={{ fontFamily: "'Georgia', serif" }}>007</span>
+      </div>
+      <h3 className="text-base font-semibold text-gray-200 mb-1">
+        Intune<span className="text-brand-400 italic" style={{ fontFamily: "'Georgia', serif" }}>007</span> Agent
+      </h3>
+      <p className="text-xs text-gray-500 mb-4 italic" style={{ fontFamily: "'Georgia', serif" }}>
+        Your license to manage.
+      </p>
+
+      {/* Category tabs */}
+      <div className="flex flex-wrap justify-center gap-1 mb-3 w-full max-w-md">
+        {categories.map((cat, i) => (
+          <button
+            key={i}
+            onClick={() => setCategory(i)}
+            className={`px-2 py-1 text-[10px] rounded-full transition-colors ${
+              i === category
+                ? "bg-brand-500/20 text-brand-400 border border-brand-500/30"
+                : "text-gray-500 hover:text-gray-300 border border-transparent"
+            }`}
+          >
+            {cat.icon} {cat.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Suggestions */}
+      <div className="grid gap-1.5 w-full max-w-md">
+        {active.suggestions.map((s) => (
+          <button
+            key={s}
+            onClick={() => onSelect(s)}
+            className="flex items-center gap-2 text-left text-[12px] px-3 py-2 rounded-lg bg-gray-800/60 hover:bg-gray-800 text-gray-400 hover:text-white transition-colors border border-gray-700/50 hover:border-brand-500/30"
+          >
+            <Search size={12} className="text-gray-600 shrink-0" />
+            {s}
+          </button>
+        ))}
+      </div>
+
+      <p className="text-[9px] text-gray-600 mt-4">73 tools · 31 panels · Self-improving AI</p>
+    </div>
+  );
+}
+
 function FeedbackButtons({ messageIndex }: { messageIndex: number }) {
   const [feedback, setFeedback] = useState<1 | -1 | null>(null);
   const [sending, setSending] = useState(false);
