@@ -457,6 +457,93 @@ The agent has access to official Microsoft Intune documentation via a Retrieval-
 
 ---
 
+## Multi-Tenant Setup
+
+Intune007 supports managing **multiple Intune tenants** from a single instance. Each tenant needs its own Entra ID app registration.
+
+### Step 1: Create App Registration Per Tenant
+
+For **each tenant** you want to manage:
+
+1. Sign into **Azure Portal** as an admin of that tenant
+2. Go to **Microsoft Entra ID → App registrations → New registration**
+3. Name: `Intune007` (or `Intune007 - [Tenant Name]`)
+4. Supported account types: **Single tenant**
+5. Click **Register**
+6. Note the **Application (client) ID** and **Directory (tenant) ID**
+7. Go to **Certificates & secrets → New client secret** → copy the secret value
+8. Go to **API permissions** → Add all 16 permissions from the [API Permissions](#3-api-permissions) table
+9. Click **Grant admin consent for [tenant]**
+
+> **Important:** Each tenant gets its own `clientId` + `clientSecret`. The app registration must be created IN that tenant — you can't reuse the app registration from your primary tenant.
+
+### Step 2: Configure Primary Tenant
+
+Your primary tenant is configured via the standard `.env` variables:
+
+```env
+AZURE_TENANT_ID=primary-tenant-id
+AZURE_CLIENT_ID=primary-client-id
+AZURE_CLIENT_SECRET=primary-client-secret
+```
+
+### Step 3: Add Additional Tenants
+
+Add additional tenants via the `AZURE_TENANTS` environment variable in `.env`:
+
+```env
+AZURE_TENANTS=[{"tenantId":"second-tenant-id","clientId":"second-client-id","clientSecret":"second-client-secret","label":"Client A"},{"tenantId":"third-tenant-id","clientId":"third-client-id","clientSecret":"third-client-secret","label":"Client B"}]
+```
+
+Each tenant object requires:
+
+| Field | Description |
+|---|---|
+| `tenantId` | Azure AD / Entra ID tenant ID (GUID) |
+| `clientId` | App registration client ID from that tenant |
+| `clientSecret` | Client secret from that tenant's app registration |
+| `label` | Display name (shown in UI and agent responses) |
+
+### Step 4: Use Multi-Tenant
+
+**Via the agent:**
+- *"List my tenants"* → shows all configured tenants with active marker
+- *"Switch to Client A"* → all subsequent queries use Client A's tenant
+
+**How it works:**
+- All Graph API calls use the **active tenant's** credentials
+- Tenant switching is instant (no restart needed)
+- Each tenant's Graph client is cached after first use
+- All tools, panels, and features work with whichever tenant is active
+
+### Security Notes
+
+- Each tenant's credentials are isolated — switching tenants uses a separate `ClientSecretCredential`
+- The `.env` file containing all secrets is gitignored
+- Consider using Azure Key Vault for production deployments instead of environment variables
+- Each tenant's app registration should have the minimum required permissions
+
+---
+
+## App Icon Sources
+
+The icon search engine checks **8 sources** in order for each app:
+
+| Priority | Source | Quality | Coverage |
+|---|---|---|---|
+| 1 | **theSVG.org** | ★★★★★ | 5,600+ brand SVGs via jsDelivr CDN |
+| 2 | Google Favicon (128px) | ★★★★ | Most websites |
+| 3 | Clearbit Logo | ★★★★ | Company logos |
+| 4 | DuckDuckGo Icons | ★★★ | General purpose |
+| 5 | Direct favicon.ico | ★★ | Any website with favicon |
+| 6 | Direct favicon (www) | ★★ | www-prefixed domains |
+| 7 | icon.horse | ★★★ | Aggregator fallback |
+| 8 | Google Favicon (64px) | ★★ | Last resort |
+
+All icons are auto-converted to **128×128 PNG** via sharp before uploading to Intune. Wrong icon? Use the 👎 button to provide a custom URL.
+
+---
+
 ## Troubleshooting
 
 | Issue | Solution |
