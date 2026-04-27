@@ -80,50 +80,80 @@ export interface ToolResult {
 }
 
 /**
- * Poll device status after an action to provide real-time feedback.
- * Waits `delayMs`, then checks if the device responded.
+ * Poll device status after an action until the device responds or timeout.
+ * Checks every `intervalMs` for up to `timeoutMs` (default 10 minutes).
  */
-async function pollDeviceStatus(deviceId: string, delayMs: number): Promise<{
+async function pollDeviceStatus(
+  deviceId: string,
+  initialDelayMs: number = 5000,
+  intervalMs: number = 15000,
+  timeoutMs: number = 10 * 60 * 1000
+): Promise<{
   responded: boolean;
   lastSyncDateTime: string;
   complianceState: string;
   deviceName: string;
   message: string;
+  pollCount: number;
+  elapsedMs: number;
 }> {
+  const startTime = Date.now();
+
   // Get pre-action state
   let preSyncTime = "";
+  let deviceName = "";
   try {
     const pre = await getDeviceDetails(deviceId);
     preSyncTime = String(pre.lastSyncDateTime || "");
+    deviceName = String(pre.deviceName || "");
   } catch { /* skip */ }
 
-  // Wait for the action to propagate
-  await new Promise((resolve) => setTimeout(resolve, delayMs));
+  // Initial delay before first check
+  await new Promise((resolve) => setTimeout(resolve, initialDelayMs));
 
-  // Check post-action state
-  try {
-    const post = await getDeviceDetails(deviceId);
-    const postSyncTime = String(post.lastSyncDateTime || "");
-    const responded = postSyncTime !== preSyncTime && postSyncTime > preSyncTime;
+  let pollCount = 0;
 
-    return {
-      responded,
-      lastSyncDateTime: postSyncTime,
-      complianceState: String(post.complianceState || "unknown"),
-      deviceName: String(post.deviceName || ""),
-      message: responded
-        ? `Device responded! Last sync updated to ${new Date(postSyncTime).toLocaleString()}`
-        : `Device has not checked in yet (last sync: ${preSyncTime ? new Date(preSyncTime).toLocaleString() : "unknown"}). The action is queued and will execute on next check-in.`,
-    };
-  } catch {
-    return {
-      responded: false,
-      lastSyncDateTime: preSyncTime,
-      complianceState: "unknown",
-      deviceName: "",
-      message: "Could not verify device status. The action was sent but confirmation is unavailable.",
-    };
+  // Poll loop: check every intervalMs until device responds or timeout
+  while (Date.now() - startTime < timeoutMs) {
+    pollCount++;
+    try {
+      const post = await getDeviceDetails(deviceId);
+      const postSyncTime = String(post.lastSyncDateTime || "");
+      deviceName = String(post.deviceName || deviceName);
+
+      if (postSyncTime !== preSyncTime && postSyncTime > preSyncTime) {
+        const elapsed = Date.now() - startTime;
+        console.log(`[DeviceAction] ${deviceName} responded after ${Math.round(elapsed / 1000)}s (${pollCount} polls)`);
+        return {
+          responded: true,
+          lastSyncDateTime: postSyncTime,
+          complianceState: String(post.complianceState || "unknown"),
+          deviceName,
+          message: `Device responded after ${Math.round(elapsed / 1000)} seconds! Last sync updated to ${new Date(postSyncTime).toLocaleString()}.`,
+          pollCount,
+          elapsedMs: elapsed,
+        };
+      }
+    } catch {
+      // Device might be rebooting — keep polling
+    }
+
+    // Wait before next check
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
   }
+
+  // Timeout reached
+  const elapsed = Date.now() - startTime;
+  console.log(`[DeviceAction] ${deviceName} did not respond within ${Math.round(elapsed / 1000)}s (${pollCount} polls)`);
+  return {
+    responded: false,
+    lastSyncDateTime: preSyncTime,
+    complianceState: "unknown",
+    deviceName,
+    message: `Device did not respond within ${Math.round(timeoutMs / 60000)} minutes (checked ${pollCount} times). The action is queued and will execute when the device next connects. Last known sync: ${preSyncTime ? new Date(preSyncTime).toLocaleString() : "unknown"}.`,
+    pollCount,
+    elapsedMs: elapsed,
+  };
 }
 
 /**
@@ -156,8 +186,8 @@ export async function executeTool(
 
       case "sync_device": {
         const result = await syncDevice(args.deviceId);
-        // Post-action check: wait 5s then check if sync was received
-        const syncCheck = await pollDeviceStatus(args.deviceId, 5000);
+        // Poll: initial 5s delay, then every 15s, timeout 10 minutes
+        const syncCheck = await pollDeviceStatus(args.deviceId, 5000, 15000, 10 * 60 * 1000);
         return { data: [{
           ...result,
           postCheck: syncCheck,
@@ -166,8 +196,8 @@ export async function executeTool(
 
       case "restart_device": {
         const result = await restartDevice(args.deviceId);
-        // Post-action check: wait 8s then check device status
-        const restartCheck = await pollDeviceStatus(args.deviceId, 8000);
+        // Poll: initial 10s delay (device needs time to reboot), then every 20s, timeout 10 minutes
+        const restartCheck = await pollDeviceStatus(args.deviceId, 10000, 20000, 10 * 60 * 1000);
         return { data: [{
           ...result,
           postCheck: restartCheck,
