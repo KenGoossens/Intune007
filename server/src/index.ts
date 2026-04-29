@@ -4,6 +4,7 @@ import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import { config, validateConfig } from "./config.js";
 import { validateBodySize } from "./security.js";
+import { startSyncScheduler, getCacheStats } from "./cache/deviceCache.js";
 import chatRouter from "./routes/chat.js";
 import alertsRouter from "./routes/alerts.js";
 import remediationRouter from "./routes/remediation.js";
@@ -118,6 +119,12 @@ app.get("/api/health", (_req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
+// Cache stats
+app.get("/api/cache/stats", (_req, res) => {
+  const stats = getCacheStats();
+  res.json(stats);
+});
+
 // Start server
 validateConfig();
 
@@ -126,6 +133,11 @@ app.listen(config.port, () => {
   console.log(`   Azure OpenAI: ${config.azureOpenAI.endpoint}`);
   console.log(`   Deployment:   ${config.azureOpenAI.deployment}`);
   console.log(`   Tenant ID:    ${config.azureAd.tenantId}\n`);
+
+  // Start device cache delta sync (every 2 minutes)
+  startSyncScheduler(2 * 60 * 1000).catch((err) =>
+    console.error("[DeviceCache] Initial sync failed:", err instanceof Error ? err.message : err)
+  );
 
   // Start alert scheduler after server is listening
   alertScheduler.start();

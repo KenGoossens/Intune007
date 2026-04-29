@@ -20,6 +20,12 @@ server/dist/
 client/dist/
 shared/dist/
 
+# Audit logs
+logs/
+
+# Generated presentations
+*.pptx
+
 # IDE
 
 .idea/

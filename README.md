@@ -1,6 +1,6 @@
 # Intune007 — License to Manage!
 
-**AI-powered Microsoft Intune management platform** with a conversational agent, 73 tools, 31 interactive UI panels, RAG-powered documentation search, 24/7 CVE vulnerability monitoring, and full Microsoft Graph API integration.
+**AI-powered Microsoft Intune management platform** with a conversational agent, 73 tools, 31 interactive UI panels, RAG-powered documentation search, 24/7 CVE vulnerability monitoring, OWASP-hardened security with destructive action confirmation gates, and full Microsoft Graph API integration.
 
 ---
 
@@ -18,6 +18,10 @@
 - [Agent Tools Reference](#agent-tools-reference)
 - [API Endpoints](#api-endpoints)
 - [Security](#security)
+  - [Destructive Action Confirmation Gate](#destructive-action-confirmation-gate)
+  - [Structured Audit Log](#structured-audit-log)
+  - [Server-Side Tool Policy](#server-side-tool-policy)
+  - [Per-Panel Settings](#per-panel-settings)
 - [Self-Improving Agent](#self-improving-agent)
 - [RAG Documentation Engine](#rag-documentation-engine)
 - [Cross-Panel Interactivity](#cross-panel-interactivity)
@@ -37,7 +41,9 @@ Intune007 is a full-stack application that connects to Microsoft Intune via the 
 - 126 TypeScript source files
 - 24/7 CVE vulnerability monitoring with AI auto-remediation and admin approval workflow
 - RAG engine indexing 45+ Microsoft Learn documentation pages
-- OWASP-hardened security (rate limiting, input validation, OData injection prevention, prompt injection defense)
+- OWASP-hardened security (rate limiting, input validation, OData injection prevention, prompt injection defense, destructive action confirmation gate, structured audit logging)
+- Server-side tool policy enforcement and 3-minute agent timeout
+- Configurable per-panel settings with tool-level enforcement
 - Golden sparkle particle effects during all agentic operations
 
 ---
@@ -71,9 +77,9 @@ Intune007 is a full-stack application that connects to Microsoft Intune via the 
 | **Client** | React 18, Vite, Tailwind CSS, Zustand (with localStorage persistence) |
 | **Server** | Express, TypeScript (tsx watch), Azure OpenAI SDK, better-sqlite3 |
 | **Shared** | TypeScript types, tool title mappings (npm workspace) |
-| **AI** | Azure OpenAI (GPT-4o / GPT-5.3-chat), function calling with 68 tools |
-| **Data** | Microsoft Graph API (beta), 7 SQLite databases (auto-created) |
-| **Security** | Helmet, express-rate-limit, OData sanitization, prompt injection defense, PowerShell script scanning |
+| **AI** | Azure OpenAI (GPT-4o / GPT-5.3-chat), function calling with 73 tools |
+| **Data** | Microsoft Graph API (beta), 8 SQLite databases (auto-created) |
+| **Security** | Helmet, express-rate-limit, OData sanitization, prompt injection defense, PowerShell script scanning, destructive action confirmation gate, structured audit logging, server-side tool policy |
 | **RAG** | Documentation search: 45+ learn.microsoft.com pages indexed with Azure OpenAI embeddings |
 | **UX** | Gold 007 branding, golden sparkle particle effects during agent operations |
 | **Optional** | Azure Functions for Autopilot hardware hash ingestion from bare-metal devices |
@@ -129,7 +135,7 @@ Intune007 is a full-stack application that connects to Microsoft Intune via the 
 | **Auto-panel navigation** | When agent calls a tool with a visual panel (timeline, troubleshooter, device card, etc.), the UI auto-navigates to show both text AND visual output |
 | **Self-improving** | Learning engine with few-shot exemplars, tool chain pattern learning, correction memory, user feedback (👍/👎) |
 | **Tool name confidentiality** | Agent describes capabilities in plain language, never exposes internal function names to users |
-| **Safety guardrails** | Destructive actions require user confirmation; PowerShell scripts scanned before deployment; input validation on all tool arguments |
+| **Safety guardrails** | Destructive actions enforce a two-step server-side confirmation gate (time-limited tokens); PowerShell scripts scanned before deployment; all OData filters sanitized; input validation on all tool arguments; 3-minute agent timeout; structured audit logging |
 | **Cross-panel navigation** | Clicking data elements triggers panel switches with auto-execution |
 | **App management** | Search/fix/refresh app icons (7 sources with PNG conversion via sharp), remove apps (assignments cleared first), bulk rename apps (find-and-replace across all app names), scan for missing icons |
 | **Sync-then-reboot** | Restart command sends a sync first so the device picks up the reboot immediately |
@@ -226,6 +232,9 @@ AZURE_OPENAI_EMBEDDING_DEPLOYMENT=text-embedding-ada-002
 AZURE_OPENAI_EMBEDDING_ENDPOINT=https://your-resource.cognitiveservices.azure.com
 AZURE_OPENAI_EMBEDDING_API_KEY=your-embedding-key
 AZURE_OPENAI_EMBEDDING_API_VERSION=2023-05-15
+
+# Optional: Server-side tool policy (disable dangerous tools)
+DISABLED_TOOLS=wipe_device,retire_device
 ```
 
 ---
@@ -233,8 +242,15 @@ AZURE_OPENAI_EMBEDDING_API_VERSION=2023-05-15
 ## Running
 
 ```bash
+# Start both server and client
+npm run dev
+```
+
+Or individually:
+
+```bash
 # Terminal 1: Start the server
-cd server && npx tsx watch src/index.ts
+cd server && npx tsx src/index.ts
 
 # Terminal 2: Start the client
 cd client && npx vite
@@ -261,6 +277,7 @@ Intune007/
 │       │   ├── DataPanel.tsx       # Interactive query result cards
 │       │   ├── DeviceCardPanel.tsx # Rich device card with action bar
 │       │   ├── DrillLinks.tsx      # 8 reusable cross-panel navigation links
+│       │   ├── SettingsPanel.tsx   # Per-panel toggle settings with persist
 │       │   ├── GenericTable.tsx    # Smart table: auto-detects clickable data types
 │       │   └── ...27 more panels
 │       ├── hooks/useAgentStream.ts
@@ -268,10 +285,10 @@ Intune007/
 ├── server/                         # Express backend
 │   └── src/
 │       ├── index.ts                # Entry (helmet, rate limiting, CORS, routes)
-│       ├── security.ts             # OWASP security: sanitization, validation, scanning
+│       ├── security.ts             # OWASP security: sanitization, validation, scanning, confirmation gate, audit log
 │       ├── agent/
-│       │   ├── agent.ts            # Agent loop with tool name confidentiality
-│       │   ├── executor.ts         # 68 tool dispatcher
+│       │   ├── agent.ts            # Agent loop with tool name confidentiality, 3-min timeout
+│       │   ├── executor.ts         # 73 tool dispatcher with confirmation gate + audit logging
 │       │   ├── tools.ts            # Tool definitions
 │       │   ├── memory.ts           # Persistent agent memory (SQLite)
 │       │   └── learningEngine.ts   # Self-improving learning loop (SQLite)
@@ -392,18 +409,53 @@ Get CVE status, get CVE list (filtered), scan for new CVEs, update CVE status (r
 
 ## Security
 
+### Security Headers & Middleware
+
 | Protection | Implementation |
 |---|---|
 | **Security Headers** | Helmet (CSP, X-Frame-Options, HSTS, X-Content-Type-Options) |
 | **Rate Limiting** | 60 req/min API, 20 req/min chat |
 | **Input Validation** | Message max 10K chars, history max 50 messages |
-| **OData Injection** | `sanitizeOData()` on all Graph API filter strings |
-| **Prompt Injection** | `sanitizeForSystemPrompt()` strips injection patterns from memory context |
+| **OData Injection** | `sanitizeODataFilter()` on all Graph API filter strings; blocks `$expand`, `$batch`, `@odata.bind`, script injection |
+| **Prompt Injection** | `sanitizeForSystemPrompt()` strips injection patterns from memory, learning context, AND RAG documentation |
+| **History Role Filtering** | Client-sent `role: "system"` messages stripped server-side — prevents injected system prompts |
 | **Tool Validation** | UUID format, serial number, UPN, string length checks |
-| **PowerShell Scanning** | 15 dangerous patterns blocked before deployment |
+| **PowerShell Scanning** | 16 dangerous patterns blocked before deployment |
 | **Error Sanitization** | Paths, tokens, connection strings stripped from responses |
-| **Destructive Actions** | `wipe_device`, `retire_device`, `remove_app`, `bulk_rename_apps`, `deploy_remediation_script` require confirmation |
 | **SQL Injection** | All SQLite queries use parameterized statements |
+
+### Destructive Action Confirmation Gate
+
+Destructive tools (`wipe_device`, `retire_device`, `deploy_remediation_script`, `create_compliance_policy`, `assign_policy`, `update_conditional_access_policy`, `deploy_hash_collector`, `remove_app`, `bulk_rename_apps`) are protected by a **server-side two-step confirmation flow**:
+
+1. **Step 1:** Agent calls the tool → server generates a cryptographic confirmation token (valid 5 minutes, single-use)
+2. **Step 2:** Agent must call the tool again with the `confirmationToken` parameter → server validates and executes
+
+This cannot be bypassed by LLM jailbreaking — enforcement is entirely server-side.
+
+### Structured Audit Log
+
+Every tool execution is logged to `logs/audit.jsonl` with:
+- Timestamp, tool name, arguments
+- Destructive flag, confirmation status
+- Result (success/error/blocked), duration
+
+### Server-Side Tool Policy
+
+Tools can be permanently disabled via the `DISABLED_TOOLS` environment variable:
+
+```env
+DISABLED_TOOLS=wipe_device,retire_device
+```
+
+Server policy overrides client settings — disabled tools cannot be re-enabled by clients.
+
+### Per-Panel Settings
+
+The Settings panel allows toggling individual panels on/off. When a panel is disabled:
+- It is hidden from the navigation sidebar
+- Its associated tools are blocked from the AI agent (the model literally cannot see or call them)
+- Preferences persist in localStorage across sessions
 
 ---
 
@@ -548,6 +600,7 @@ All icons are auto-converted to **128×128 PNG** via sharp before uploading to I
 
 | Issue | Solution |
 |---|---|
+| `tsx watch` hangs on startup | Large `node_modules` causes file watcher stall — use `tsx` without `watch` instead |
 | `temperature` not supported | Some models (gpt-5.3-chat) don't support it — remove from config |
 | `max_tokens` error | Use `max_completion_tokens` instead |
 | App install status returns 0 | `deviceStatuses` is deprecated — uses `detectedApps` |

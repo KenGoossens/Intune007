@@ -267,6 +267,52 @@ export function formatToolTitle(toolName: string): string {
     .join(" ");
 }
 
+// ─── Panel → Tool mapping (used to disable tools when panels are toggled off) ──
+export const PANEL_TO_TOOLS: Record<string, string[]> = {
+  alerts: ["get_security_alerts"],
+  data: [
+    "get_managed_devices", "get_device_details", "get_compliance_policies",
+    "get_compliance_status", "get_device_configurations", "get_device_configuration_states",
+    "get_mobile_apps", "get_app_install_status", "get_device_detected_apps",
+    "get_device_app_install_states", "get_conditional_access_policies",
+    "get_autopilot_devices", "get_autopilot_profiles", "get_groups", "get_group_members",
+    "create_group", "add_group_member", "get_bitlocker_keys", "get_device_threat_summary",
+    "get_audit_logs", "get_sign_in_logs", "get_directory_audit_logs",
+    "get_update_rings", "get_update_compliance", "get_compliance_trend",
+    "list_tenants", "switch_tenant",
+  ],
+  deviceCard: ["get_device_card"],
+  queryBuilder: [],
+  reportGenerator: ["generate_report"],
+  policies: ["analyze_policies", "assign_policy", "update_conditional_access_policy"],
+  policyBuilder: ["create_compliance_policy"],
+  policyDiff: [],
+  remediation: [
+    "generate_remediation_script", "deploy_remediation_script", "list_remediation_scripts",
+    "sync_device", "restart_device", "lock_device", "reset_passcode", "retire_device", "wipe_device",
+  ],
+  troubleshooter: ["run_troubleshooter"],
+  logs: [],
+  insights: ["save_note", "recall_notes", "record_learning", "get_learning_stats"],
+  riskScores: ["get_device_risk_scores"],
+  forecast: ["run_compliance_forecast"],
+  securityPosture: ["get_security_posture"],
+  cveMonitor: ["get_cve_status", "get_cve_list", "scan_cves", "update_cve_status"],
+  appHealth: [
+    "get_app_health", "scan_app_icons", "fix_app_icon", "fix_all_missing_icons",
+    "remove_app", "rename_app", "bulk_rename_apps",
+  ],
+  autopilotReadiness: [
+    "check_autopilot_readiness", "onboard_autopilot_device",
+    "get_autopilot_collection_script", "deploy_hash_collector",
+    "process_collected_hashes", "ingest_autopilot_csv",
+  ],
+  baselines: ["manage_config_baseline"],
+  timeline: ["get_device_timeline"],
+  tasks: ["create_scheduled_task", "list_scheduled_tasks", "manage_scheduled_task"],
+  analytics: [],
+};
+
 // ─── Intune Entity Types (lean versions for display) ─────────────
 
 export interface ManagedDeviceInfo {

@@ -33,7 +33,7 @@ router.post("/", async (req: Request, res: Response) => {
     return;
   }
 
-  const { message, history } = validation;
+  const { message, history, disabledTools } = validation;
 
   const toolResults: CollectedToolResult[] = [];
   let finalResponse = "";
@@ -62,7 +62,7 @@ router.post("/", async (req: Request, res: Response) => {
       onError(message: string) {
         agentError = message;
       },
-    });
+    }, disabledTools);
 
     res.json({
       response: finalResponse || agentError || "No response generated.",

@@ -7,9 +7,14 @@
  *  - OData filter injection in Microsoft Graph API calls
  *  - Rate limiting & DoS prevention
  *  - Input validation & sanitization
+ *  - Destructive action confirmation gate
+ *  - Structured audit logging
  */
 
 import type { Request, Response, NextFunction } from "express";
+import crypto from "crypto";
+import fs from "fs";
+import path from "path";
 
 // ════════════════════════════════════════════════════════════════
 //  1. OData FILTER SANITIZATION — Prevents Graph API injection
@@ -100,7 +105,8 @@ export const MAX_HISTORY_MESSAGE_LENGTH = 50_000;
 export function validateChatInput(body: {
   message?: unknown;
   history?: unknown;
-}): { message: string; history: unknown[]; error?: undefined } | { error: string } {
+  disabledTools?: unknown;
+}): { message: string; history: unknown[]; disabledTools: string[]; error?: undefined } | { error: string } {
   // Validate message
   if (!body.message || typeof body.message !== "string") {
     return { error: "Missing or invalid 'message' field" };
@@ -141,7 +147,15 @@ export function validateChatInput(body: {
     }
   }
 
-  return { message, history };
+  // Validate disabledTools
+  let disabledTools: string[] = [];
+  if (body.disabledTools) {
+    if (Array.isArray(body.disabledTools)) {
+      disabledTools = body.disabledTools.filter((t): t is string => typeof t === "string");
+    }
+  }
+
+  return { message, history, disabledTools };
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -383,4 +397,180 @@ export function sanitizeErrorMessage(error: string): string {
     .substring(0, 500);
 
   return safe;
+}
+
+// ════════════════════════════════════════════════════════════════
+//  8. DESTRUCTIVE ACTION CONFIRMATION GATE
+// ════════════════════════════════════════════════════════════════
+
+/**
+ * Two-step confirmation for destructive tools.
+ * Step 1: Agent requests a destructive action → server generates a confirmation token
+ * Step 2: Agent must present the token to actually execute
+ *
+ * Tokens expire after 5 minutes and are single-use.
+ */
+
+interface PendingConfirmation {
+  token: string;
+  toolName: string;
+  args: Record<string, unknown>;
+  createdAt: number;
+  description: string;
+}
+
+const pendingConfirmations = new Map<string, PendingConfirmation>();
+const CONFIRMATION_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+export function requiresConfirmation(toolName: string): boolean {
+  return DESTRUCTIVE_TOOLS.has(toolName);
+}
+
+export function createConfirmationToken(
+  toolName: string,
+  args: Record<string, unknown>,
+  description: string
+): PendingConfirmation {
+  // Clean up expired tokens
+  const now = Date.now();
+  for (const [key, val] of pendingConfirmations) {
+    if (now - val.createdAt > CONFIRMATION_TTL_MS) {
+      pendingConfirmations.delete(key);
+    }
+  }
+
+  const token = crypto.randomBytes(16).toString("hex");
+  const confirmation: PendingConfirmation = {
+    token,
+    toolName,
+    args,
+    createdAt: now,
+    description,
+  };
+  pendingConfirmations.set(token, confirmation);
+  return confirmation;
+}
+
+export function validateConfirmationToken(
+  token: string,
+  toolName: string
+): { valid: true; args: Record<string, unknown> } | { valid: false; error: string } {
+  const confirmation = pendingConfirmations.get(token);
+  if (!confirmation) {
+    return { valid: false, error: "Invalid or expired confirmation token." };
+  }
+  if (Date.now() - confirmation.createdAt > CONFIRMATION_TTL_MS) {
+    pendingConfirmations.delete(token);
+    return { valid: false, error: "Confirmation token expired (5 minute limit)." };
+  }
+  if (confirmation.toolName !== toolName) {
+    return { valid: false, error: "Token does not match the requested action." };
+  }
+  // Single-use: delete after validation
+  pendingConfirmations.delete(token);
+  return { valid: true, args: confirmation.args };
+}
+
+// ════════════════════════════════════════════════════════════════
+//  9. STRUCTURED AUDIT LOG
+// ════════════════════════════════════════════════════════════════
+
+const AUDIT_LOG_DIR = path.join(process.cwd(), "logs");
+let auditLogStream: fs.WriteStream | null = null;
+
+function getAuditLogStream(): fs.WriteStream {
+  if (!auditLogStream) {
+    if (!fs.existsSync(AUDIT_LOG_DIR)) {
+      fs.mkdirSync(AUDIT_LOG_DIR, { recursive: true });
+    }
+    const logPath = path.join(AUDIT_LOG_DIR, "audit.jsonl");
+    auditLogStream = fs.createWriteStream(logPath, { flags: "a" });
+  }
+  return auditLogStream;
+}
+
+export interface AuditEntry {
+  timestamp: string;
+  toolName: string;
+  args: Record<string, unknown>;
+  isDestructive: boolean;
+  confirmed: boolean;
+  result: "success" | "error" | "blocked";
+  error?: string;
+  durationMs?: number;
+}
+
+export function auditLog(entry: AuditEntry): void {
+  const line = JSON.stringify(entry);
+  console.log(`[Audit] ${entry.result.toUpperCase()} ${entry.toolName}${entry.isDestructive ? " (DESTRUCTIVE)" : ""}`);
+  try {
+    getAuditLogStream().write(line + "\n");
+  } catch {
+    // Audit log failure should not crash the server
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
+//  10. ODATA FILTER SANITIZATION FOR TOOL ARGS
+// ════════════════════════════════════════════════════════════════
+
+/**
+ * Sanitize an OData $filter expression from LLM-generated tool args.
+ * More permissive than sanitizeOData (which is for single values) —
+ * allows OData operators, quotes, parens, and comparison operators
+ * but blocks dangerous patterns.
+ */
+export function sanitizeODataFilter(filter: string): string {
+  if (!filter || typeof filter !== "string") return "";
+
+  // Block any attempt to inject functions like expand(), $count, $batch
+  const blocked = /(\$expand|\$batch|\$count|@odata\.(bind|type|id)|javascript:|<script)/i;
+  if (blocked.test(filter)) {
+    throw new Error("OData filter contains blocked pattern");
+  }
+
+  // Length limit
+  if (filter.length > 500) {
+    throw new Error("OData filter too long (max 500 characters)");
+  }
+
+  return filter;
+}
+
+// ════════════════════════════════════════════════════════════════
+//  11. SERVER-SIDE TOOL POLICY
+// ════════════════════════════════════════════════════════════════
+
+/**
+ * Server-side disabled tools — loaded from env or config.
+ * These override any client-side settings.
+ */
+let serverDisabledTools: Set<string> | null = null;
+
+export function getServerDisabledTools(): Set<string> {
+  if (serverDisabledTools) return serverDisabledTools;
+
+  const envDisabled = process.env.DISABLED_TOOLS || "";
+  serverDisabledTools = new Set(
+    envDisabled
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean)
+  );
+
+  if (serverDisabledTools.size > 0) {
+    console.log(`[Security] Server-disabled tools: ${[...serverDisabledTools].join(", ")}`);
+  }
+
+  return serverDisabledTools;
+}
+
+/**
+ * Merge client-disabled tools with server-disabled tools.
+ * Server policy always wins — cannot be re-enabled by client.
+ */
+export function getEffectiveDisabledTools(clientDisabled: string[]): string[] {
+  const serverDisabled = getServerDisabledTools();
+  const merged = new Set([...clientDisabled, ...serverDisabled]);
+  return [...merged];
 }

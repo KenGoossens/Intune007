@@ -4,11 +4,110 @@ import { getManagedDevices } from "../graph/devices.js";
 import { removeApp, getAppAssignments } from "../graph/appManagement.js";
 import { findAndUploadIcon, searchIconWithProgress, uploadAppIcon } from "../graph/appIcons.js";
 import { sanitizeErrorMessage } from "../security.js";
+import { batchGetDetectedApps } from "../graph/batch.js";
 
 const router = Router();
 const BETA = "https://graph.microsoft.com/beta";
 
-let cache: { data: unknown; ts: number } | null = null;
+let cache: { data: Record<string, unknown>; ts: number } | null = null;
+
+/** Get app health data (used by executor + route). Returns cached data if fresh. */
+export async function getAppHealthData(): Promise<Record<string, unknown>> {
+  if (cache && Date.now() - cache.ts < 180000) return cache.data;
+
+  const client = getGraphClient();
+  const apps = await fetchWithPagination<Record<string, unknown>>(client,
+    `${BETA}/deviceAppManagement/mobileApps`,
+    { select: "id,displayName,publisher", maxItems: 100 }
+  );
+  const devices = await getManagedDevices({ top: 100 });
+
+  const appDeviceDetails = new Map<string, Map<string, string>>();
+  let totalDetectedApps = 0;
+
+  // Use $batch API: 20 devices per batch call instead of 1-by-1
+  const deviceIds = devices.items.map((d) => String(d.id));
+  const batchResults = await batchGetDetectedApps(deviceIds);
+
+  for (const [, apps] of batchResults) {
+    totalDetectedApps += apps.length;
+    for (const app of apps) {
+      const name = String(app.displayName || "");
+      if (!appDeviceDetails.has(name)) appDeviceDetails.set(name, new Map());
+      // Find which device this belongs to — batch preserves device ID as key
+    }
+  }
+
+  // Re-iterate to build device-level mapping
+  for (const device of devices.items) {
+    const detected = batchResults.get(String(device.id)) || [];
+    for (const app of detected) {
+      const name = String(app.displayName || "");
+      if (!appDeviceDetails.has(name)) appDeviceDetails.set(name, new Map());
+      appDeviceDetails.get(name)!.set(
+        String((device as unknown as Record<string, unknown>).deviceName || ""),
+        String(app.version || "")
+      );
+    }
+  }
+
+  const detectedNamesLower = new Map<string, Map<string, string>>();
+  for (const [name, deviceMap] of appDeviceDetails) {
+    detectedNamesLower.set(name.toLowerCase(), deviceMap);
+  }
+
+  const appHealth: Array<Record<string, unknown>> = [];
+  for (const app of apps.items) {
+    const appName = String(app.displayName || "");
+    const appType = String(app["@odata.type"] || "").replace("#microsoft.graph.", "");
+    const appNameLower = appName.toLowerCase();
+
+    let matchedDevices: Map<string, string> | undefined = detectedNamesLower.get(appNameLower);
+    if (!matchedDevices || matchedDevices.size === 0) {
+      for (const [detectedName, deviceMap] of detectedNamesLower) {
+        if (detectedName.includes(appNameLower) || appNameLower.includes(detectedName)) {
+          if (!matchedDevices || deviceMap.size > matchedDevices.size) matchedDevices = deviceMap;
+        }
+      }
+    }
+
+    const detectedOn = matchedDevices?.size || 0;
+    const deviceList = matchedDevices
+      ? Array.from(matchedDevices.entries()).map(([name, version]) => ({ deviceName: name, version }))
+      : [];
+
+    appHealth.push({
+      appId: String(app.id), displayName: appName, publisher: app.publisher, appType,
+      iconBase64: null as string | null, iconType: "image/png",
+      detectedOnDevices: detectedOn, totalDevices: devices.items.length,
+      deploymentRate: devices.items.length > 0 ? Math.round((detectedOn / devices.items.length) * 100) : 0,
+      devices: deviceList,
+    });
+  }
+
+  // Fetch icons in parallel batches of 5
+  const BATCH_SIZE = 5;
+  for (let i = 0; i < appHealth.length; i += BATCH_SIZE) {
+    const batch = appHealth.slice(i, i + BATCH_SIZE);
+    const icons = await Promise.all(batch.map((a) => getAppIcon(client, a.appId as string)));
+    for (let j = 0; j < batch.length; j++) {
+      if (icons[j]) { batch[j].iconBase64 = icons[j]!.base64; batch[j].iconType = icons[j]!.type; }
+    }
+  }
+
+  appHealth.sort((a, b) => (b.detectedOnDevices as number) - (a.detectedOnDevices as number));
+
+  const result: Record<string, unknown> = {
+    generatedAt: new Date().toISOString(),
+    totalManagedApps: apps.items.length,
+    totalDevices: devices.items.length,
+    totalDetectedApps,
+    appsDetectedOnDevices: appHealth.filter((a) => (a.detectedOnDevices as number) > 0).length,
+    apps: appHealth,
+  };
+  cache = { data: result, ts: Date.now() };
+  return result;
+}
 
 // Icon cache — persists across requests, keyed by app ID
 const iconCache = new Map<string, { base64: string; type: string } | null>();
@@ -49,116 +148,8 @@ async function getAppIcon(client: ReturnType<typeof getGraphClient>, appId: stri
  * The deviceStatuses/installSummary endpoints require ReadWrite.All permission.
  */
 router.get("/", async (_req: Request, res: Response) => {
-  if (cache && Date.now() - cache.ts < 180000) { res.json(cache.data); return; }
   try {
-    const client = getGraphClient();
-
-    // Get all managed apps
-    const apps = await fetchWithPagination<Record<string, unknown>>(client,
-      `${BETA}/deviceAppManagement/mobileApps`,
-      { select: "id,displayName,publisher", maxItems: 100 }
-    );
-
-    // Get all devices
-    const devices = await getManagedDevices({ top: 100 });
-
-    // For each device, get detected apps and cross-reference
-    const appDeviceMap = new Map<string, Set<string>>(); // appName -> Set of deviceNames
-    let totalDetectedApps = 0;
-
-    // Track: appName -> Map of deviceName -> version
-    const appDeviceDetails = new Map<string, Map<string, string>>();
-
-    for (const device of devices.items) {
-      try {
-        const detected = await fetchWithPagination<Record<string, unknown>>(client,
-          `${BETA}/deviceManagement/managedDevices/${device.id}/detectedApps`,
-          { select: "displayName,version", maxItems: 200 }
-        );
-        totalDetectedApps += detected.items.length;
-        for (const app of detected.items) {
-          const name = String(app.displayName || "");
-          if (!appDeviceDetails.has(name)) appDeviceDetails.set(name, new Map());
-          appDeviceDetails.get(name)!.set(
-            String((device as unknown as Record<string, unknown>).deviceName || ""),
-            String(app.version || "")
-          );
-        }
-      } catch { /* skip */ }
-    }
-
-    // Build app health list — merge managed apps with detected data using fuzzy matching
-    const appHealth: Array<Record<string, unknown>> = [];
-
-    // Build a lowercase index for fuzzy matching
-    const detectedNamesLower = new Map<string, Map<string, string>>();
-    for (const [name, deviceMap] of appDeviceDetails) {
-      detectedNamesLower.set(name.toLowerCase(), deviceMap);
-    }
-
-    for (const app of apps.items) {
-      const appName = String(app.displayName || "");
-      const appType = String(app["@odata.type"] || "").replace("#microsoft.graph.", "");
-      const appNameLower = appName.toLowerCase();
-
-      // Try exact match first, then fuzzy (contains) match
-      let matchedDevices: Map<string, string> | undefined = detectedNamesLower.get(appNameLower);
-
-      if (!matchedDevices || matchedDevices.size === 0) {
-        for (const [detectedName, deviceMap] of detectedNamesLower) {
-          if (detectedName.includes(appNameLower) || appNameLower.includes(detectedName)) {
-            if (!matchedDevices || deviceMap.size > matchedDevices.size) {
-              matchedDevices = deviceMap;
-            }
-          }
-        }
-      }
-
-      const detectedOn = matchedDevices?.size || 0;
-      const deviceList = matchedDevices
-        ? Array.from(matchedDevices.entries()).map(([name, version]) => ({ deviceName: name, version }))
-        : [];
-
-      appHealth.push({
-        appId: String(app.id),
-        displayName: appName,
-        publisher: app.publisher,
-        appType,
-        iconBase64: null as string | null,
-        iconType: "image/png",
-        detectedOnDevices: detectedOn,
-        totalDevices: devices.items.length,
-        deploymentRate: devices.items.length > 0 ? Math.round((detectedOn / devices.items.length) * 100) : 0,
-        devices: deviceList,
-      });
-    }
-
-    // Fetch icons in parallel batches of 5
-    const BATCH_SIZE = 5;
-    for (let i = 0; i < appHealth.length; i += BATCH_SIZE) {
-      const batch = appHealth.slice(i, i + BATCH_SIZE);
-      const icons = await Promise.all(
-        batch.map((app) => getAppIcon(client, app.appId as string))
-      );
-      for (let j = 0; j < batch.length; j++) {
-        if (icons[j]) {
-          batch[j].iconBase64 = icons[j]!.base64;
-          batch[j].iconType = icons[j]!.type;
-        }
-      }
-    }
-
-    appHealth.sort((a, b) => (b.detectedOnDevices as number) - (a.detectedOnDevices as number));
-
-    const result = {
-      generatedAt: new Date().toISOString(),
-      totalManagedApps: apps.items.length,
-      totalDevices: devices.items.length,
-      totalDetectedApps,
-      appsDetectedOnDevices: appHealth.filter((a) => (a.detectedOnDevices as number) > 0).length,
-      apps: appHealth,
-    };
-    cache = { data: result, ts: Date.now() };
+    const result = await getAppHealthData();
     res.json(result);
   } catch (err: unknown) {
     res.status(500).json({ error: sanitizeErrorMessage(err instanceof Error ? err.message : String(err)) });

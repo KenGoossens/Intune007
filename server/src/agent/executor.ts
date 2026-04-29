@@ -67,11 +67,15 @@ import { deployHashCollector, processCollectedHashes } from "../autopilot/hashCo
 import { generateRemediationScript, generateAlertRemediation } from "../remediation/scriptGenerator.js";
 import { deployToIntune } from "../remediation/deployer.js";
 import { analyzePolicies } from "../policyAnalyzer/analyzer.js";
-import { sanitizeOData, isValidUUID, scanPowerShellScript, sanitizeErrorMessage } from "../security.js";
+import { sanitizeOData, isValidUUID, scanPowerShellScript, sanitizeErrorMessage, sanitizeODataFilter, requiresConfirmation, createConfirmationToken, validateConfirmationToken, auditLog } from "../security.js";
 import { getLearningStats, recordCorrection } from "./learningEngine.js";
 import { findAndUploadIcon, fixAllMissingIcons, scanAppIcons } from "../graph/appIcons.js";
 import { removeApp, renameApp, bulkRenameApps } from "../graph/appManagement.js";
 import { runCVEScan, getCVEs, getCVEStats, updateCVEStatus } from "../cve/monitor.js";
+import { computeSecurityPosture } from "../routes/securityPosture.js";
+import { getAppHealthData } from "../routes/appHealth.js";
+import { checkAutopilotReadinessCore, ingestAutopilotCsv } from "../routes/autopilotReadiness.js";
+import { buildDeviceTimeline } from "../routes/deviceTimeline.js";
 
 export interface ToolResult {
   data: unknown[];
@@ -187,13 +191,53 @@ function formatDuration(ms: number): string {
 /**
  * Dispatches a tool call to the corresponding Graph API function.
  * Returns the data array and total count, or an error message.
+ *
+ * Security layers:
+ * 1. Destructive action confirmation gate (two-step token flow)
+ * 2. OData filter sanitization
+ * 3. Structured audit logging
  */
 export async function executeTool(
   toolName: string,
   argsJson: string
 ): Promise<ToolResult> {
+  const startTime = Date.now();
   try {
     const args = JSON.parse(argsJson || "{}");
+
+    // ── Destructive action gate ──────────────────────────────
+    if (requiresConfirmation(toolName)) {
+      // If the agent provides a confirmationToken, validate it
+      if (args.confirmationToken) {
+        const validation = validateConfirmationToken(args.confirmationToken, toolName);
+        if (!validation.valid) {
+          auditLog({ timestamp: new Date().toISOString(), toolName, args: { ...args, confirmationToken: "[redacted]" }, isDestructive: true, confirmed: false, result: "blocked", error: validation.error });
+          return { data: [], error: validation.error };
+        }
+        // Token valid — proceed with execution below
+        auditLog({ timestamp: new Date().toISOString(), toolName, args: { ...args, confirmationToken: "[redacted]" }, isDestructive: true, confirmed: true, result: "success", durationMs: Date.now() - startTime });
+      } else {
+        // No token — generate one and return it to the agent
+        const desc = `${toolName} with args: ${JSON.stringify(args).substring(0, 200)}`;
+        const confirmation = createConfirmationToken(toolName, args, desc);
+        auditLog({ timestamp: new Date().toISOString(), toolName, args, isDestructive: true, confirmed: false, result: "blocked", error: "Awaiting confirmation" });
+        return {
+          data: [{
+            requiresConfirmation: true,
+            confirmationToken: confirmation.token,
+            message: `⚠️ DESTRUCTIVE ACTION REQUIRES CONFIRMATION: ${toolName}. To proceed, call this tool again with the confirmationToken parameter set to: ${confirmation.token}`,
+            description: desc,
+            expiresIn: "5 minutes",
+          }],
+          totalCount: 0,
+        };
+      }
+    }
+
+    // ── OData filter sanitization ────────────────────────────
+    if (args.filter && typeof args.filter === "string") {
+      args.filter = sanitizeODataFilter(args.filter);
+    }
 
     switch (toolName) {
       case "get_managed_devices": {
@@ -640,23 +684,18 @@ export async function executeTool(
       }
 
       case "get_security_posture": {
-        const res = await fetch("http://localhost:3001/api/security-posture");
-        const posture = await res.json();
-        return { data: [{ complianceRate: posture.current?.complianceRate, encryptionRate: posture.current?.encryptionRate, staleRate: posture.current?.staleRate, totalDevices: posture.current?.totalDevices, compliant: posture.current?.compliantDevices, nonCompliant: posture.current?.nonCompliantDevices, encrypted: posture.current?.encryptedDevices, stale: posture.current?.staleDevices }], totalCount: 1 };
+        const posture = await computeSecurityPosture();
+        const c = posture.current as Record<string, unknown>;
+        return { data: [{ complianceRate: c.complianceRate, encryptionRate: c.encryptionRate, staleRate: c.staleRate, totalDevices: c.totalDevices, compliant: c.compliantDevices, nonCompliant: c.nonCompliantDevices, encrypted: c.encryptedDevices, stale: c.staleDevices }], totalCount: 1 };
       }
 
       case "get_app_health": {
-        const res = await fetch("http://localhost:3001/api/app-health");
-        const health = await res.json();
-        return { data: [{ totalApps: health.totalManagedApps, totalDevices: health.totalDevices, detectedApps: health.totalDetectedApps, appsOnDevices: health.appsDetectedOnDevices, apps: (health.apps || []).slice(0, 10).map((a: Record<string, unknown>) => ({ name: a.displayName, type: a.appType, detectedOn: a.detectedOnDevices, rate: a.deploymentRate })) }], totalCount: 1 };
+        const health = await getAppHealthData();
+        return { data: [{ totalApps: health.totalManagedApps, totalDevices: health.totalDevices, detectedApps: health.totalDetectedApps, appsOnDevices: health.appsDetectedOnDevices, apps: ((health.apps as Array<Record<string, unknown>>) || []).slice(0, 10).map((a: Record<string, unknown>) => ({ name: a.displayName, type: a.appType, detectedOn: a.detectedOnDevices, rate: a.deploymentRate })) }], totalCount: 1 };
       }
 
       case "check_autopilot_readiness": {
-        const res = await fetch("http://localhost:3001/api/autopilot-readiness/check", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ serialNumber: args.serialNumber }),
-        });
-        const readiness = await res.json();
+        const readiness = await checkAutopilotReadinessCore({ serialNumber: args.serialNumber as string });
         return { data: [readiness], totalCount: 1 };
       }
 
@@ -696,29 +735,21 @@ export async function executeTool(
       }
 
       case "ingest_autopilot_csv": {
-        const res = await fetch("http://localhost:3001/api/autopilot-readiness/ingest-csv", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ csvData: args.csvData, groupTag: args.groupTag, targetGroupId: args.targetGroupId }),
-        });
-        return { data: [await res.json()], totalCount: 1 };
+        const csvResult = await ingestAutopilotCsv(String(args.csvData), { groupTag: args.groupTag as string, targetGroupId: args.targetGroupId as string });
+        return { data: [csvResult], totalCount: 1 };
       }
 
       case "get_device_timeline": {
-        const res = await fetch("http://localhost:3001/api/device-timeline", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ deviceName: args.deviceName }),
-        });
-        const timeline = await res.json();
-        // Flatten: return timeline events as individual rows for the data panel
+        const timeline = await buildDeviceTimeline({ deviceName: args.deviceName as string });
         const events = (timeline.timeline || []) as Array<Record<string, unknown>>;
-        const device = timeline.device || {};
+        const tlDevice = timeline.device || {} as Record<string, unknown>;
         const flatEvents = events.map((e: Record<string, unknown>) => ({
-          deviceName: device.deviceName || args.deviceName,
+          deviceName: (tlDevice as Record<string, unknown>).deviceName || args.deviceName,
           date: e.date,
           event: e.event,
           category: e.category,
         }));
-        return { data: flatEvents.length > 0 ? flatEvents : [{ deviceName: device.deviceName || args.deviceName, event: "No timeline events found", category: "info", date: new Date().toISOString() }], totalCount: timeline.totalEvents || flatEvents.length };
+        return { data: flatEvents.length > 0 ? flatEvents : [{ deviceName: (tlDevice as Record<string, unknown>).deviceName || args.deviceName, event: "No timeline events found", category: "info", date: new Date().toISOString() }], totalCount: timeline.totalEvents || flatEvents.length };
       }
 
       case "run_compliance_forecast": {
@@ -890,6 +921,12 @@ export async function executeTool(
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`Tool execution error [${toolName}]:`, message);
+    auditLog({
+      timestamp: new Date().toISOString(), toolName,
+      args: {}, isDestructive: requiresConfirmation(toolName),
+      confirmed: false, result: "error", error: sanitizeErrorMessage(message),
+      durationMs: Date.now() - startTime,
+    });
     return {
       data: [],
       error: `Error executing ${toolName}: ${sanitizeErrorMessage(message)}`,

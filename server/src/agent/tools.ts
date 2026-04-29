@@ -1,4 +1,5 @@
 import type { ChatCompletionTool } from "openai/resources/chat/completions.js";
+import { DESTRUCTIVE_TOOLS } from "../security.js";
 
 /**
  * Tool definitions for Azure OpenAI function calling.
@@ -1544,3 +1545,18 @@ export const agentTools: ChatCompletionTool[] = [
     },
   },
 ];
+
+// Inject confirmationToken into all destructive tool definitions
+for (const tool of agentTools) {
+  if (DESTRUCTIVE_TOOLS.has(tool.function.name)) {
+    const params = tool.function.parameters as Record<string, unknown>;
+    const props = params.properties as Record<string, unknown>;
+    props.confirmationToken = {
+      type: "string",
+      description:
+        "Server-issued confirmation token. Required for destructive actions. " +
+        "If you call this tool without a token, you will receive one. " +
+        "Then call the tool again with this token to confirm execution.",
+    };
+  }
+}

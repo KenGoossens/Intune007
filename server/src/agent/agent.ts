@@ -9,7 +9,7 @@ import { executeTool, type ToolResult } from "./executor.js";
 import type { ChatMessage } from "@intune-agent/shared";
 import { analyticsTracker } from "../analytics/tracker.js";
 import { getRecentContext } from "./memory.js";
-import { validateToolArgs, sanitizeForSystemPrompt, scanPowerShellScript, sanitizeErrorMessage } from "../security.js";
+import { validateToolArgs, sanitizeForSystemPrompt, scanPowerShellScript, sanitizeErrorMessage, getEffectiveDisabledTools } from "../security.js";
 import { buildLearningContext, logInteraction } from "./learningEngine.js";
 import { searchDocs, buildDocContext } from "../rag/engine.js";
 
@@ -204,7 +204,10 @@ function createOpenAIClient(): AzureOpenAI {
 function toOpenAIMessages(
   history: ChatMessage[]
 ): ChatCompletionMessageParam[] {
-  return history.map((msg) => {
+  return history
+    // Strip any "system" role messages from client-sent history (injection defense)
+    .filter((msg) => msg.role !== "system")
+    .map((msg) => {
     if (msg.role === "tool") {
       return {
         role: "tool" as const,
@@ -241,7 +244,8 @@ function toOpenAIMessages(
 export async function runAgentLoop(
   userMessage: string,
   history: ChatMessage[],
-  callbacks: AgentStreamCallbacks
+  callbacks: AgentStreamCallbacks,
+  disabledTools: string[] = []
 ): Promise<void> {
   console.log(`\n[Agent] New request: "${userMessage}"`);
   const client = createOpenAIClient();
@@ -268,7 +272,7 @@ export async function runAgentLoop(
     systemContent += `\n\n${sanitizeForSystemPrompt(learningContext)}`;
   }
   if (docContext) {
-    systemContent += `\n\n${docContext}`;
+    systemContent += `\n\n${sanitizeForSystemPrompt(docContext)}`;
   }
 
   const messages: ChatCompletionMessageParam[] = [
@@ -278,21 +282,39 @@ export async function runAgentLoop(
   ];
 
   const MAX_ITERATIONS = 10; // Safety limit to prevent infinite loops
+  const AGENT_TIMEOUT_MS = 3 * 60 * 1000; // 3-minute hard timeout
+  const agentStartTime = Date.now();
   let iterations = 0;
   const toolChainLog: string[] = []; // Track tools called for learning
 
+  // Merge client + server disabled tools
+  const effectiveDisabledTools = getEffectiveDisabledTools(disabledTools);
+
   try {
     while (iterations < MAX_ITERATIONS) {
+      // Check timeout
+      if (Date.now() - agentStartTime > AGENT_TIMEOUT_MS) {
+        console.log(`[Agent] Timeout reached after ${Math.round((Date.now() - agentStartTime) / 1000)}s`);
+        callbacks.onDone("I ran out of time processing your request. The results gathered so far are shown above. Please try a more specific question.");
+        break;
+      }
+
       iterations++;
 
       console.log(`[Agent] Iteration ${iterations} — calling Azure OpenAI...`);
       const startTime = Date.now();
 
+      // Filter out disabled tools based on panel settings + server policy
+      const disabledSet = new Set(effectiveDisabledTools);
+      const activeTools = disabledSet.size > 0
+        ? agentTools.filter((t) => !disabledSet.has(t.function.name))
+        : agentTools;
+
       const completion = await client.chat.completions.create({
         model: config.azureOpenAI.deployment,
         messages,
-        tools: agentTools,
-        tool_choice: "auto",
+        tools: activeTools.length > 0 ? activeTools : undefined,
+        tool_choice: activeTools.length > 0 ? "auto" : undefined,
       });
 
       console.log(`[Agent] OpenAI responded in ${Date.now() - startTime}ms — finish_reason: ${completion.choices[0]?.finish_reason}`);

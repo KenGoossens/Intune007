@@ -2,6 +2,8 @@ import { useCallback, useRef } from "react";
 import { useChatStore } from "../stores/chatStore.ts";
 import { useActivityStore } from "../stores/activityStore.ts";
 import { useNavigationStore, type TargetPanel } from "../stores/navigationStore.ts";
+import { useSettingsStore } from "../stores/settingsStore.ts";
+import { PANEL_TO_TOOLS } from "@intune-agent/shared";
 
 /**
  * Map of tool names to the panel they should auto-navigate to.
@@ -138,11 +140,20 @@ export function useAgentStream() {
       .filter((m) => m.role === "user" || m.role === "assistant")
       .map((m) => ({ role: m.role, content: m.content }));
 
+    // Compute disabled tools based on settings panel toggles
+    const panelVis = useSettingsStore.getState().panelVisibility;
+    const disabledTools: string[] = [];
+    for (const [panelId, tools] of Object.entries(PANEL_TO_TOOLS)) {
+      if (panelVis[panelId] === false) {
+        disabledTools.push(...tools);
+      }
+    }
+
     try {
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: userMessage, history }),
+        body: JSON.stringify({ message: userMessage, history, disabledTools }),
       });
 
       const data: ChatApiResponse = await response.json();
