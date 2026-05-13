@@ -19,7 +19,15 @@ export const config = {
     tenantId: process.env.AZURE_TENANT_ID!,
     clientId: process.env.AZURE_CLIENT_ID!,
     clientSecret: process.env.AZURE_CLIENT_SECRET!,
+    // Certificate auth (preferred for multi-tenant). If both cert and secret
+    // are set, certificate takes precedence.
+    clientCertPath: process.env.AZURE_CLIENT_CERT_PATH || "",
+    clientCertPassword: process.env.AZURE_CLIENT_CERT_PASSWORD || "",
   },
+
+  // Public base URL for OAuth/admin-consent redirects. In dev this is the
+  // server's localhost URL; in prod it should be the externally reachable URL.
+  appBaseUrl: process.env.APP_BASE_URL || `http://localhost:${parseInt(process.env.PORT || "3001", 10)}`,
 
   // Server
   port: parseInt(process.env.PORT || "3001", 10),
@@ -33,8 +41,12 @@ export function validateConfig(): void {
     ["AZURE_OPENAI_DEPLOYMENT", config.azureOpenAI.deployment],
     ["AZURE_TENANT_ID", config.azureAd.tenantId],
     ["AZURE_CLIENT_ID", config.azureAd.clientId],
-    ["AZURE_CLIENT_SECRET", config.azureAd.clientSecret],
   ];
+
+  // Either secret OR cert must be set
+  if (!config.azureAd.clientSecret && !config.azureAd.clientCertPath) {
+    required.push(["AZURE_CLIENT_SECRET or AZURE_CLIENT_CERT_PATH", ""]);
+  }
 
   const missing = required
     .filter(([, value]) => !value || value === "YOUR_CLIENT_SECRET_HERE")

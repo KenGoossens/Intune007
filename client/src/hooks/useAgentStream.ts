@@ -68,6 +68,10 @@ const TOOL_PANEL_MAP: Record<string, { panel: TargetPanel; deviceNameArg?: strin
   get_groups: { panel: "data" },
   get_group_members: { panel: "data" },
 
+  // Policy assignments
+  get_policies_assigned_to_group: { panel: "data" },
+  get_policies_assigned_to_device: { panel: "data" },
+
   // Logs
   get_audit_logs: { panel: "data" },
   get_sign_in_logs: { panel: "data" },
@@ -93,6 +97,13 @@ const TOOL_PANEL_MAP: Record<string, { panel: TargetPanel; deviceNameArg?: strin
   get_cve_status: { panel: "cveMonitor" as TargetPanel },
   get_cve_list: { panel: "cveMonitor" as TargetPanel },
   scan_cves: { panel: "cveMonitor" as TargetPanel },
+
+  // DO Simulator
+  create_do_simulation: { panel: "doSimulator" as TargetPanel },
+  analyze_do_simulation: { panel: "doSimulator" as TargetPanel },
+  analyze_current_tenant_for_do: { panel: "doSimulator" as TargetPanel },
+  generate_do_intune_profile: { panel: "doSimulator" as TargetPanel },
+  list_do_simulations: { panel: "doSimulator" as TargetPanel },
 
   // Learning / Analytics
   get_learning_stats: { panel: "analytics" },

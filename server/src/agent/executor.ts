@@ -40,6 +40,8 @@ import {
   assignCompliancePolicy,
   assignConfigurationProfile,
   updateConditionalAccessPolicy,
+  getPoliciesAssignedToGroup,
+  getPoliciesAssignedToDevice,
 } from "../graph/policyManagement.js";
 import {
   getUpdateRings,
@@ -66,12 +68,21 @@ import { onboardAutopilotDevice, getHardwareHashCollectionScript } from "../auto
 import { deployHashCollector, processCollectedHashes } from "../autopilot/hashCollector.js";
 import { generateRemediationScript, generateAlertRemediation } from "../remediation/scriptGenerator.js";
 import { deployToIntune } from "../remediation/deployer.js";
+import { validateScript } from "../remediation/scriptValidator.js";
 import { analyzePolicies } from "../policyAnalyzer/analyzer.js";
 import { sanitizeOData, isValidUUID, scanPowerShellScript, sanitizeErrorMessage, sanitizeODataFilter, requiresConfirmation, createConfirmationToken, validateConfirmationToken, auditLog } from "../security.js";
 import { getLearningStats, recordCorrection } from "./learningEngine.js";
 import { findAndUploadIcon, fixAllMissingIcons, scanAppIcons } from "../graph/appIcons.js";
 import { removeApp, renameApp, bulkRenameApps } from "../graph/appManagement.js";
 import { runCVEScan, getCVEs, getCVEStats, updateCVEStatus } from "../cve/monitor.js";
+import { runSimulation as runDOSimulation } from "../doSimulator/engine.js";
+import {
+  saveSimulation as saveDOSimulation,
+  listSimulations as listDOSimulations,
+  getSimulation as getDOSimulation,
+} from "../doSimulator/store.js";
+import { buildAllProfiles as buildAllDOProfiles } from "../doSimulator/intuneProfile.js";
+import { analyseCurrentTenantForDO } from "../doSimulator/tenantAnalyzer.js";
 import { computeSecurityPosture } from "../routes/securityPosture.js";
 import { getAppHealthData } from "../routes/appHealth.js";
 import { checkAutopilotReadinessCore, ingestAutopilotCsv } from "../routes/autopilotReadiness.js";
@@ -380,6 +391,14 @@ export async function executeTool(
         const script = args.alertType
           ? await generateAlertRemediation(args.alertType, [])
           : await generateRemediationScript(args.prompt);
+
+        // Run quality validation immediately after generation
+        const validation = await validateScript(
+          script.detectionScript,
+          script.remediationScript,
+          script.displayName
+        );
+
         return {
           data: [
             {
@@ -389,6 +408,13 @@ export async function executeTool(
               remediationScript: script.remediationScript,
               runAsAccount: script.runAsAccount,
               explanation: script.explanation,
+              validation: {
+                valid: validation.valid,
+                summary: validation.summary,
+                syntaxErrors: validation.syntaxErrors,
+                pesterResults: validation.pesterResults,
+                phases: validation.phases,
+              },
             },
           ],
           totalCount: 1,
@@ -406,6 +432,22 @@ export async function executeTool(
             error: `Script blocked by security scan: ${allIssues.join("; ")}`,
           };
         }
+
+        // Quality validation: AST + Pester checks
+        const deployValidation = await validateScript(
+          String(args.detectionScript || ""),
+          String(args.remediationScript || ""),
+          String(args.displayName || "Remediation Script")
+        );
+        if (!deployValidation.valid) {
+          return {
+            data: [{
+              validation: deployValidation,
+            }],
+            error: `Script failed quality validation: ${deployValidation.summary}`,
+          };
+        }
+
         const result = await deployToIntune({
           displayName: args.displayName,
           description: args.description,
@@ -567,6 +609,22 @@ export async function executeTool(
           state: args.state,
         });
         return { data: [result], totalCount: 1 };
+      }
+
+      case "get_policies_assigned_to_group": {
+        if (!isValidUUID(args.groupId)) {
+          return { data: [], error: "Invalid group ID — must be a valid UUID" };
+        }
+        const result = await getPoliciesAssignedToGroup(args.groupId);
+        return { data: result.items, totalCount: result.totalCount };
+      }
+
+      case "get_policies_assigned_to_device": {
+        if (!isValidUUID(args.deviceId)) {
+          return { data: [], error: "Invalid device ID — must be a valid UUID" };
+        }
+        const result = await getPoliciesAssignedToDevice(args.deviceId);
+        return { data: result.items, totalCount: result.totalCount };
       }
 
       // ─── Windows Update ────────────────────────────────────────
@@ -910,6 +968,61 @@ export async function executeTool(
       case "update_cve_status": {
         updateCVEStatus(args.cveId, args.status);
         return { data: [{ cveId: args.cveId, status: args.status, message: `CVE ${args.cveId} marked as ${args.status}` }], totalCount: 1 };
+      }
+
+      // ─── Delivery Optimization Simulator ─────────────────────
+      case "create_do_simulation": {
+        const input = {
+          name: String(args.name || "Agent simulation"),
+          sites: Array.isArray(args.sites) ? args.sites : [],
+          content: args.content || {
+            windowsUpdatesGBPerDevice: 3,
+            m365AppsGBPerDevice: 1.5,
+            intuneAppsGBPerDevice: 1,
+            driversGBPerDevice: 0.5,
+          },
+          environment: args.environment || {
+            identityModel: "hybrid",
+            intuneWorkloadCount: 0,
+            configMgrDPCount: 0,
+            coManagementEnabled: false,
+          },
+          assumptions: args.assumptions || { wanCostPerGB: 0.05, mccHitRate: 0.85 },
+        };
+        const result = runDOSimulation(input);
+        if (args.save) saveDOSimulation(result);
+        return { data: [result], totalCount: 1 };
+      }
+
+      case "analyze_current_tenant_for_do": {
+        const prefill = await analyseCurrentTenantForDO();
+        return { data: [prefill], totalCount: 1 };
+      }
+
+      case "analyze_do_simulation": {
+        const sim = getDOSimulation(String(args.simulationId));
+        if (!sim) return { data: [], error: "Simulation not found" };
+        return { data: [sim], totalCount: 1 };
+      }
+
+      case "list_do_simulations": {
+        const list = listDOSimulations();
+        return { data: list, totalCount: list.length };
+      }
+
+      case "generate_do_intune_profile": {
+        const sim = getDOSimulation(String(args.simulationId));
+        if (!sim) return { data: [], error: "Simulation not found" };
+        const profiles = buildAllDOProfiles(sim);
+        return {
+          data: [{
+            simulationId: sim.simulationId,
+            simulationName: sim.name,
+            profileCount: profiles.length,
+            profiles,
+          }],
+          totalCount: 1,
+        };
       }
 
       default:

@@ -44,6 +44,7 @@ const DEFAULT_VISIBILITY: Record<string, boolean> = {
   timeline: true,
   tasks: true,
   analytics: true,
+  doSimulator: true,
 };
 
 export const useSettingsStore = create<SettingsState>()(

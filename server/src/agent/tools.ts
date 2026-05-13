@@ -795,6 +795,43 @@ export const agentTools: ChatCompletionTool[] = [
   {
     type: "function",
     function: {
+      name: "get_policies_assigned_to_group",
+      description:
+        "Get all policies (compliance, configuration, remediation, app protection, conditional access) assigned to a specific Azure AD group. Use get_groups first to find the group ID.",
+      parameters: {
+        type: "object",
+        properties: {
+          groupId: {
+            type: "string",
+            description: "The unique ID of the Azure AD group. Use get_groups to find it.",
+          },
+        },
+        required: ["groupId"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_policies_assigned_to_device",
+      description:
+        "Get all policies (compliance and configuration profiles) currently assigned to a specific managed device. Shows the policy state (compliant, conflict, error, notApplicable). Use get_managed_devices to find the device ID first.",
+      parameters: {
+        type: "object",
+        properties: {
+          deviceId: {
+            type: "string",
+            description: "The unique ID of the managed device. Use get_managed_devices to find it.",
+          },
+        },
+        required: ["deviceId"],
+      },
+    },
+  },
+  // ─── Windows Update Tools (continued) ─────────────────────────
+  {
+    type: "function",
+    function: {
       name: "get_update_rings",
       description:
         "List Windows Update for Business configuration profiles (update rings). Shows deferral periods, delivery optimization mode, and update settings.",
@@ -989,13 +1026,13 @@ export const agentTools: ChatCompletionTool[] = [
     function: {
       name: "generate_report",
       description:
-        "Generate a comprehensive Intune report from a natural language description. Pulls data from multiple Intune APIs (devices, compliance, apps, policies, security, updates) and generates a formatted markdown report with AI. Use this when the user asks for a report, summary, or overview of their environment.",
+        "Generate a targeted Intune report that directly answers the user's specific question. Uses AI planning to determine which data sources to fetch (with filters), then generates a data-rich report focused on what the user actually asked. Reports are styled appropriately: executive (KPIs, management-ready), technical (configs, device states), operational (action items, priorities), comparative (trends, deltas), or investigative (deep dives). Use this for any request involving 'report', 'summary', 'overview', 'analysis', 'breakdown', or when the user needs formatted output about their environment.",
       parameters: {
         type: "object",
         properties: {
           prompt: {
             type: "string",
-            description: "Description of the report to generate. Examples: 'Full executive summary', 'Compliance report for Windows devices', 'Security posture report'",
+            description: "The user's report request — be specific. Include any mentioned devices, groups, OS platforms, date ranges, or focus areas. Good: 'Compliance report for Windows devices that are non-compliant, showing which policies they violate'. Bad: 'compliance report'.",
           },
         },
         required: ["prompt"],
@@ -1541,6 +1578,119 @@ export const agentTools: ChatCompletionTool[] = [
           },
         },
         required: ["cveId", "status"],
+      },
+    },
+  },
+  // ─── Delivery Optimization Simulator ──────────────────────────
+  {
+    type: "function",
+    function: {
+      name: "create_do_simulation",
+      description:
+        "Run a Delivery Optimization simulation that models moving from ConfigMgr distribution points to Intune App Distribution + Microsoft Connected Cache. Takes a topology description (sites with device counts, WAN bandwidth, MCC candidate servers, ConfigMgr DPs, subnets) and a content profile, and produces per-site DO mode recommendations, MCC placement, bandwidth savings, a cloud-native readiness score, and a phased migration plan. Use this whenever the user asks about DO planning, MCC, retiring DPs, moving to Intune App Distribution, or comparing on-prem vs cloud content delivery.",
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "Friendly name for this simulation (e.g. 'Q2 retire-DP plan')" },
+          sites: {
+            type: "array",
+            description: "Array of sites in the environment. At minimum each site needs name, deviceCount, wanBandwidthMbps.",
+            items: {
+              type: "object",
+              properties: {
+                name: { type: "string" },
+                type: { type: "string", description: "headquarters | branch | small_branch | roaming | guest" },
+                deviceCount: { type: "number" },
+                wanBandwidthMbps: { type: "number" },
+                hasMCCCandidate: { type: "boolean", description: "Site has a Windows/Linux server-class device available to host an MCC node" },
+                hasConfigMgrDP: { type: "boolean", description: "Site currently hosts a ConfigMgr distribution point" },
+                boundaryGroupName: { type: "string" },
+                adSiteName: { type: "string" },
+                subnets: {
+                  type: "array",
+                  items: { type: "object", properties: { cidr: { type: "string" } }, required: ["cidr"] },
+                },
+              },
+              required: ["name", "deviceCount", "wanBandwidthMbps"],
+            },
+          },
+          content: {
+            type: "object",
+            description: "Average monthly content delivered per device (in GB). Defaults applied if omitted.",
+            properties: {
+              windowsUpdatesGBPerDevice: { type: "number" },
+              m365AppsGBPerDevice: { type: "number" },
+              intuneAppsGBPerDevice: { type: "number" },
+              driversGBPerDevice: { type: "number" },
+            },
+          },
+          environment: {
+            type: "object",
+            properties: {
+              identityModel: { type: "string", description: "ad_only | hybrid | aadj" },
+              intuneWorkloadCount: { type: "number", description: "Number of ConfigMgr workloads (0-8) switched to Intune" },
+              configMgrDPCount: { type: "number" },
+              coManagementEnabled: { type: "boolean" },
+            },
+          },
+          assumptions: {
+            type: "object",
+            properties: {
+              wanCostPerGB: { type: "number" },
+              mccHitRate: { type: "number" },
+              peerHitRateOverride: { type: "number" },
+            },
+          },
+          save: { type: "boolean", description: "Persist this simulation for later retrieval" },
+        },
+        required: ["sites"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "analyze_current_tenant_for_do",
+      description:
+        "Inspect the currently-connected Intune tenant and pre-fill a DO simulation input. Reads device join types, management agents and OS mix to infer the identity model and how many ConfigMgr workloads have already moved to Intune. The result is a starting-point simulation input with one aggregated 'site' that the admin can split into real locations. Use this as the first step when the user wants a DO recommendation but hasn't described their topology.",
+      parameters: { type: "object", properties: {}, required: [] },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "analyze_do_simulation",
+      description:
+        "Re-fetch a previously-saved DO simulation by id (returns full result with per-site recommendations, savings, readiness, migration plan, and Mermaid architecture diagram). Use after create_do_simulation if the user wants to revisit results.",
+      parameters: {
+        type: "object",
+        properties: {
+          simulationId: { type: "string" },
+        },
+        required: ["simulationId"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "list_do_simulations",
+      description: "List all saved DO simulations with their headline savings and readiness scores.",
+      parameters: { type: "object", properties: {}, required: [] },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "generate_do_intune_profile",
+      description:
+        "Generate Intune Configuration Profile JSON (Settings Catalog / OMA-URI) containing the recommended Delivery Optimization settings for a saved simulation. One profile is produced per site. The result is JSON the admin can drop into Intune (or deploy via the existing Intune deploy flow with a confirmation token).",
+      parameters: {
+        type: "object",
+        properties: {
+          simulationId: { type: "string" },
+        },
+        required: ["simulationId"],
       },
     },
   },

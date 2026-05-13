@@ -33,6 +33,8 @@ import deviceCardRouter from "./routes/deviceCard.js";
 import learningRouter from "./routes/learning.js";
 import docsRouter from "./routes/docs.js";
 import cveRouter from "./routes/cve.js";
+import tenantsRouter from "./routes/tenants.js";
+import doSimulatorRouter from "./routes/doSimulator.js";
 import { alertScheduler } from "./alerts/scheduler.js";
 import { startTaskScheduler } from "./scheduler/taskScheduler.js";
 import { startCVEScheduler } from "./cve/scheduler.js";
@@ -113,6 +115,8 @@ app.use("/api/device-card", deviceCardRouter);
 app.use("/api/learning", learningRouter);
 app.use("/api/docs", docsRouter);
 app.use("/api/cve", cveRouter);
+app.use("/api/tenants", tenantsRouter);
+app.use("/api/do-simulator", doSimulatorRouter);
 
 // Health check
 app.get("/api/health", (_req, res) => {

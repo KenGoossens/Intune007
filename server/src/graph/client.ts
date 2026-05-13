@@ -1,36 +1,13 @@
 import { Client } from "@microsoft/microsoft-graph-client";
-import {
-  ClientSecretCredential,
-  type TokenCredential,
-} from "@azure/identity";
-import { TokenCredentialAuthenticationProvider } from "@microsoft/microsoft-graph-client/authProviders/azureTokenCredentials/index.js";
-import { config } from "../config.js";
-
-let graphClient: Client | null = null;
-let credential: TokenCredential | null = null;
+import { getActiveTenantClient } from "./tenantManager.js";
 
 /**
- * Lazily initializes and returns the Microsoft Graph client
- * using client credentials (app-only) authentication.
+ * Returns the Microsoft Graph client for the currently active tenant.
+ * Switching the active tenant (via the tenants API) transparently changes
+ * which tenant subsequent calls hit.
  */
 export function getGraphClient(): Client {
-  if (graphClient) return graphClient;
-
-  credential = new ClientSecretCredential(
-    config.azureAd.tenantId,
-    config.azureAd.clientId,
-    config.azureAd.clientSecret
-  );
-
-  const authProvider = new TokenCredentialAuthenticationProvider(credential, {
-    scopes: ["https://graph.microsoft.com/.default"],
-  });
-
-  graphClient = Client.initWithMiddleware({
-    authProvider,
-  });
-
-  return graphClient;
+  return getActiveTenantClient();
 }
 
 /**

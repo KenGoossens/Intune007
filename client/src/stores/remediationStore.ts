@@ -11,10 +11,26 @@ export interface GeneratedScript {
   explanation: string;
 }
 
+export interface ValidationPhase {
+  name: string;
+  status: "passed" | "failed" | "skipped" | "warning" | "pending";
+  duration?: number;
+  details?: string;
+}
+
+export interface ScriptValidation {
+  valid: boolean;
+  summary: string;
+  syntaxErrors: string[];
+  pesterResults: { name: string; passed: boolean; message?: string }[];
+  phases?: ValidationPhase[];
+}
+
 export interface DeployResult {
   scriptId: string;
   displayName: string;
   success: boolean;
+  validation?: ScriptValidation;
   error?: string;
 }
 
@@ -22,6 +38,8 @@ interface RemediationState {
   // Generated scripts history
   generatedScripts: GeneratedScript[];
   currentScript: GeneratedScript | null;
+  currentValidation: ScriptValidation | null;
+  currentApprovalId: string | null;
   isGenerating: boolean;
   isDeploying: boolean;
   deployResult: DeployResult | null;
@@ -34,6 +52,8 @@ interface RemediationState {
   generateScript: (prompt: string, alertType?: string) => Promise<void>;
   generateForAlert: (alertType: string, alertDetails: unknown[]) => Promise<void>;
   deployScript: (script: GeneratedScript) => Promise<void>;
+  approveScript: (approvalId: string) => Promise<void>;
+  rejectScript: (approvalId: string) => Promise<void>;
   fetchExistingScripts: () => Promise<void>;
   setCurrentScript: (script: GeneratedScript | null) => void;
   clearDeployResult: () => void;
@@ -44,6 +64,8 @@ export const useRemediationStore = create<RemediationState>()(
     (set, get) => ({
   generatedScripts: [],
   currentScript: null,
+  currentValidation: null,
+  currentApprovalId: null,
   isGenerating: false,
   isDeploying: false,
   deployResult: null,
@@ -51,7 +73,7 @@ export const useRemediationStore = create<RemediationState>()(
   isLoadingExisting: false,
 
   generateScript: async (prompt: string, alertType?: string) => {
-    set({ isGenerating: true, currentScript: null, deployResult: null });
+    set({ isGenerating: true, currentScript: null, currentValidation: null, currentApprovalId: null, deployResult: null });
     useActivityStore.getState().addActivity("script-generation");
     try {
       const res = await fetch("/api/remediation/generate", {
@@ -63,6 +85,8 @@ export const useRemediationStore = create<RemediationState>()(
       if (data.error) throw new Error(data.error);
       set((state) => ({
         currentScript: data.script,
+        currentValidation: data.validation || null,
+        currentApprovalId: data.approvalId || null,
         generatedScripts: [data.script, ...state.generatedScripts],
       }));
     } catch (err: unknown) {
@@ -127,6 +151,54 @@ export const useRemediationStore = create<RemediationState>()(
     }
   },
 
+  approveScript: async (approvalId: string) => {
+    set({ isDeploying: true, deployResult: null });
+    try {
+      const res = await fetch(`/api/remediation/approve/${approvalId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      const data = await res.json();
+      if (data.error) {
+        set({
+          deployResult: {
+            scriptId: "",
+            displayName: get().currentScript?.displayName || "",
+            success: false,
+            error: data.error,
+          },
+        });
+      } else {
+        set({ deployResult: data, currentApprovalId: null });
+        if (data.success) {
+          get().fetchExistingScripts();
+        }
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      set({
+        deployResult: {
+          scriptId: "",
+          displayName: get().currentScript?.displayName || "",
+          success: false,
+          error: msg,
+        },
+      });
+    } finally {
+      set({ isDeploying: false });
+    }
+  },
+
+  rejectScript: async (approvalId: string) => {
+    try {
+      await fetch(`/api/remediation/reject/${approvalId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+    } catch { /* ignore */ }
+    set({ currentApprovalId: null, currentScript: null, currentValidation: null });
+  },
+
   fetchExistingScripts: async () => {
     set({ isLoadingExisting: true });
     try {
@@ -140,7 +212,7 @@ export const useRemediationStore = create<RemediationState>()(
     }
   },
 
-  setCurrentScript: (script) => set({ currentScript: script, deployResult: null }),
+  setCurrentScript: (script) => set({ currentScript: script, deployResult: null, currentValidation: null, currentApprovalId: null }),
   clearDeployResult: () => set({ deployResult: null }),
     }),
     {

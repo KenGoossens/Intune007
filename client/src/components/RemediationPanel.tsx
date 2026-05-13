@@ -24,10 +24,13 @@ import {
   type GeneratedScript,
 } from "../stores/remediationStore.ts";
 import { useNavigationStore } from "../stores/navigationStore.ts";
+import ScriptApprovalCard from "./ScriptApprovalCard.tsx";
 
 export default function RemediationPanel() {
   const {
     currentScript,
+    currentValidation,
+    currentApprovalId,
     generatedScripts,
     isGenerating,
     isDeploying,
@@ -36,6 +39,8 @@ export default function RemediationPanel() {
     isLoadingExisting,
     generateScript,
     deployScript,
+    approveScript,
+    rejectScript,
     fetchExistingScripts,
     setCurrentScript,
   } = useRemediationStore();
@@ -158,12 +163,25 @@ export default function RemediationPanel() {
 
           {/* Current script preview */}
           {currentScript && (
-            <ScriptPreview
-              script={currentScript}
-              isDeploying={isDeploying}
-              deployResult={deployResult}
-              onDeploy={() => deployScript(currentScript)}
-            />
+            <>
+              <ScriptPreview
+                script={currentScript}
+                isDeploying={isDeploying}
+                deployResult={deployResult}
+                onDeploy={() => currentApprovalId ? approveScript(currentApprovalId) : deployScript(currentScript)}
+              />
+              {/* Validation & Approval Gate */}
+              {currentValidation && currentApprovalId && !deployResult && (
+                <ScriptApprovalCard
+                  validation={currentValidation}
+                  approvalId={currentApprovalId}
+                  displayName={currentScript.displayName}
+                  isDeploying={isDeploying}
+                  onApprove={approveScript}
+                  onReject={rejectScript}
+                />
+              )}
+            </>
           )}
 
           {/* History */}
@@ -368,9 +386,19 @@ function ExistingScriptCard({ script, onDeleted }: { script: Record<string, unkn
                     className="w-full bg-gray-900 text-green-400 text-xs font-mono rounded-lg px-3 py-2 border border-gray-700 focus:border-brand-500 focus:outline-none resize-y"
                   />
                 ) : (
-                  <pre className="bg-gray-900 text-green-400 text-xs font-mono rounded-lg px-3 py-2 max-h-48 overflow-auto border border-gray-700/50 whitespace-pre-wrap">
-                    {detectionCode || "Loading..."}
-                  </pre>
+                  <SyntaxHighlighter
+                    language="powershell"
+                    style={oneDark}
+                    customStyle={{
+                      margin: 0,
+                      borderRadius: "8px",
+                      fontSize: "0.75rem",
+                      maxHeight: "12rem",
+                      border: "1px solid #374151",
+                    }}
+                  >
+                    {detectionCode || "# Loading..."}
+                  </SyntaxHighlighter>
                 )}
               </div>
 
@@ -386,9 +414,19 @@ function ExistingScriptCard({ script, onDeleted }: { script: Record<string, unkn
                     className="w-full bg-gray-900 text-blue-400 text-xs font-mono rounded-lg px-3 py-2 border border-gray-700 focus:border-brand-500 focus:outline-none resize-y"
                   />
                 ) : (
-                  <pre className="bg-gray-900 text-blue-400 text-xs font-mono rounded-lg px-3 py-2 max-h-48 overflow-auto border border-gray-700/50 whitespace-pre-wrap">
-                    {remediationCode || "Loading..."}
-                  </pre>
+                  <SyntaxHighlighter
+                    language="powershell"
+                    style={oneDark}
+                    customStyle={{
+                      margin: 0,
+                      borderRadius: "8px",
+                      fontSize: "0.75rem",
+                      maxHeight: "12rem",
+                      border: "1px solid #374151",
+                    }}
+                  >
+                    {remediationCode || "# Loading..."}
+                  </SyntaxHighlighter>
                 )}
               </div>
 

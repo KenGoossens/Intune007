@@ -4,10 +4,27 @@ import {
   listRemediationScripts,
 } from "../graph/remediation.js";
 import type { GeneratedScript } from "./scriptGenerator.js";
+import { validateScript, type ScriptValidationResult } from "./scriptValidator.js";
+
+/**
+ * Whether to require script signing for deployed remediations.
+ * Controlled by ENFORCE_SCRIPT_SIGNING env var (default: false).
+ * When true, Intune will only run scripts signed by a trusted publisher.
+ */
+const ENFORCE_SIGNATURE_CHECK = process.env.ENFORCE_SCRIPT_SIGNING === "true";
+
+/**
+ * Whether to run the full quality validation pipeline before deployment.
+ * Controlled by SKIP_SCRIPT_VALIDATION env var (default: validation ON).
+ */
+const SKIP_VALIDATION = process.env.SKIP_SCRIPT_VALIDATION === "true";
 
 /**
  * Deploy a generated script to Intune as a Proactive Remediation.
- * Returns the created script ID and details.
+ * Runs the quality validation pipeline (AST + Pester) before deployment
+ * unless SKIP_SCRIPT_VALIDATION=true.
+ *
+ * Returns the created script ID, validation results, and details.
  */
 export async function deployToIntune(
   script: GeneratedScript
@@ -15,9 +32,37 @@ export async function deployToIntune(
   scriptId: string;
   displayName: string;
   success: boolean;
+  validation?: ScriptValidationResult;
   error?: string;
 }> {
   try {
+    // ─── Quality Validation Pipeline ───────────────────────────
+    if (!SKIP_VALIDATION) {
+      const validation = await validateScript(
+        script.detectionScript,
+        script.remediationScript,
+        script.displayName
+      );
+
+      if (!validation.valid) {
+        console.warn(`[Deploy] Script blocked by validation: ${validation.summary}`);
+        return {
+          scriptId: "",
+          displayName: script.displayName,
+          success: false,
+          validation,
+          error: `Script failed quality validation: ${validation.summary}. ` +
+            validation.syntaxErrors.join("; ") +
+            validation.pesterResults
+              .filter((r) => !r.passed)
+              .map((r) => `${r.name}: ${r.message}`)
+              .join("; "),
+        };
+      }
+
+      console.log(`[Deploy] Validation passed: ${validation.summary}`);
+    }
+
     console.log(`[Deploy] Creating Proactive Remediation: "${script.displayName}"`);
 
     // Base64-encode the scripts (Graph API requires this)
@@ -30,7 +75,7 @@ export async function deployToIntune(
       detectionScriptContent: detectionBase64,
       remediationScriptContent: remediationBase64,
       runAsAccount: script.runAsAccount,
-      enforceSignatureCheck: false,
+      enforceSignatureCheck: ENFORCE_SIGNATURE_CHECK,
       runAs32Bit: false,
     });
 

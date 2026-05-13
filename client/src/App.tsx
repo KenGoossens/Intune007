@@ -24,6 +24,8 @@ import DeviceCardPanel from "./components/DeviceCardPanel.tsx";
 import CVEMonitorPanel from "./components/CVEMonitorPanel.tsx";
 import SettingsPanel from "./components/SettingsPanel.tsx";
 import SparkleOverlay from "./components/SparkleOverlay.tsx";
+import TenantSwitcher from "./components/TenantSwitcher.tsx";
+import DOSimulatorPanel from "./components/DOSimulatorPanel.tsx";
 import { GripVertical, Shield, MessageSquare, X } from "lucide-react";
 import { useAlertStore } from "./stores/alertStore.ts";
 import { useNavigationStore } from "./stores/navigationStore.ts";
@@ -31,7 +33,7 @@ import { useChatStore } from "./stores/chatStore.ts";
 import { useActivityStore } from "./stores/activityStore.ts";
 import { useSettingsStore } from "./stores/settingsStore.ts";
 
-type ActivePanel = "alerts" | "data" | "remediation" | "analytics" | "policies" | "policyBuilder" | "policyDiff" | "riskScores" | "troubleshooter" | "forecast" | "queryBuilder" | "appHealth" | "autopilotReadiness" | "baselines" | "timeline" | "securityPosture" | "reportGenerator" | "deviceCard" | "cveMonitor" | "logs" | "tasks" | "insights" | "settings";
+type ActivePanel = "alerts" | "data" | "remediation" | "analytics" | "policies" | "policyBuilder" | "policyDiff" | "riskScores" | "troubleshooter" | "forecast" | "queryBuilder" | "appHealth" | "autopilotReadiness" | "baselines" | "timeline" | "securityPosture" | "reportGenerator" | "deviceCard" | "cveMonitor" | "doSimulator" | "logs" | "tasks" | "insights" | "settings";
 
 interface NavItem {
   id: ActivePanel;
@@ -53,6 +55,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: "policyDiff",         label: "Policy Diff",         section: "operations" },
   { id: "remediation",        label: "Remediation",         section: "operations" },
   { id: "troubleshooter",     label: "Troubleshooter",      section: "operations" },
+  { id: "doSimulator",        label: "DO Simulator",        section: "operations" },
   // Insights — alphabetical
   { id: "analytics",          label: "Analytics",           section: "insights" },
   { id: "appHealth",          label: "App Health",          section: "insights" },
@@ -145,6 +148,11 @@ export default function App() {
               <p className="text-[10px] text-gray-500 italic leading-tight" style={{ fontFamily: "'Georgia', serif" }}>Your license to manage.</p>
             </div>
           </div>
+        </div>
+
+        {/* Tenant switcher */}
+        <div className="px-3 py-2 border-b border-gray-800">
+          <TenantSwitcher />
         </div>
 
         {/* Nav sections */}
@@ -256,6 +264,8 @@ export default function App() {
             <SecurityPosturePanel />
           ) : activePanel === "cveMonitor" ? (
             <CVEMonitorPanel />
+          ) : activePanel === "doSimulator" ? (
+            <DOSimulatorPanel />
           ) : activePanel === "reportGenerator" ? (
             <ReportGeneratorPanel />
           ) : activePanel === "deviceCard" ? (

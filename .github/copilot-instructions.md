@@ -34,10 +34,14 @@ Intune007 is an AI-powered Microsoft Intune management platform. It uses a conve
 | `server/src/security.ts` | OWASP security: OData sanitization, prompt injection defense, confirmation tokens, audit log, tool policy |
 | `server/src/config.ts` | Environment validation (dotenv) |
 | `server/src/graph/client.ts` | Graph API auth (ClientSecretCredential, lazy singleton) |
+| `server/src/remediation/scriptValidator.ts` | PowerShell quality pipeline: AST validation + Pester tests |
+| `server/src/remediation/deployer.ts` | Deploys scripts to Intune with validation gate and configurable signing |
+| `server/docs/SCRIPT_QUALITY_PIPELINE.md` | Full documentation of the 6-layer script quality pipeline |
 | `client/src/App.tsx` | Main layout — nav sidebar, panel routing, settings gear |
 | `client/src/hooks/useAgentStream.ts` | Chat hook — sends messages, receives results, auto-navigates panels, sends disabledTools |
 | `client/src/stores/settingsStore.ts` | Per-panel visibility toggles (persisted to localStorage) |
 | `client/src/stores/navigationStore.ts` | Cross-panel navigation with context |
+| `client/src/components/ScriptApprovalCard.tsx` | User approval UI for script deployment with validation results |
 | `shared/src/types.ts` | SSE events, ChatMessage, TOOL_TO_PANEL_TYPE, PANEL_TO_TOOLS mappings |
 
 ## Databases (9 SQLite, auto-created, gitignored)
@@ -83,7 +87,17 @@ analytics.db, history.db, memory.db, tasks.db, learning.db, baselines.db, docs.d
 - Never inject unsanitized external content into the system prompt
 - All SQLite queries use parameterized statements
 - Error messages are sanitized before returning to clients
-- PowerShell scripts are scanned for 16 dangerous patterns before deployment
+- PowerShell scripts are validated through a 6-layer quality pipeline before deployment (see `server/docs/SCRIPT_QUALITY_PIPELINE.md`)
+
+## Script Quality Pipeline
+
+PowerShell remediation scripts pass through 6 layers before reaching Intune:
+1. **Structured Generation Prompt** — LLM generates scripts with enforced conventions (exit codes, error handling, idempotent)
+2. **Security Pattern Scan** — 16 regex patterns block network exfiltration, code injection, persistence (security.ts)
+3. **PowerShell AST Validation** — Native parser catches syntax errors (scriptValidator.ts)
+4. **Pester v5 Structural Tests** — Auto-generated tests verify exit statements, error handling, size limits (scriptValidator.ts)
+5. **User Approval Gate** — Scripts shown in UI with validation results; user must click "Approve & Deploy" (ScriptApprovalCard.tsx)
+6. **Script Signing** — Optional: `ENFORCE_SCRIPT_SIGNING=true` env var requires code-signed scripts in Intune (deployer.ts)
 
 ## Common Gotchas
 

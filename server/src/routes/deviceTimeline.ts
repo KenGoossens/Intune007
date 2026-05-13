@@ -52,7 +52,7 @@ export async function buildDeviceTimeline(opts: { deviceName?: string; deviceId?
       if (!existing || String(c.lastModifiedDateTime || "") > String(existing.lastModifiedDateTime || "")) seen.set(key, c);
     }
     for (const c of seen.values()) {
-      timeline.push({ date: String(c.lastModifiedDateTime || ""), event: `Compliance: ${c.displayName} — ${c.state}`, category: "compliance" });
+      timeline.push({ date: String(c.lastModifiedDateTime || device.enrolledDateTime || new Date().toISOString()), event: `Compliance: ${c.displayName} — ${c.state}`, category: "compliance" });
     }
   } catch { /* skip */ }
 

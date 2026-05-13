@@ -27,6 +27,7 @@ export async function getAppHealthData(): Promise<Record<string, unknown>> {
 
   // Use $batch API: 20 devices per batch call instead of 1-by-1
   const deviceIds = devices.items.map((d) => String(d.id));
+  console.log(`[AppHealth] Querying detected apps for ${deviceIds.length} devices...`);
   const batchResults = await batchGetDetectedApps(deviceIds);
 
   for (const [, apps] of batchResults) {
@@ -96,6 +97,9 @@ export async function getAppHealthData(): Promise<Record<string, unknown>> {
   }
 
   appHealth.sort((a, b) => (b.detectedOnDevices as number) - (a.detectedOnDevices as number));
+
+  const detectedCount = appHealth.filter((a) => (a.detectedOnDevices as number) > 0).length;
+  console.log(`[AppHealth] Results: ${apps.items.length} managed apps, ${devices.items.length} devices, ${totalDetectedApps} detected app instances, ${detectedCount} apps matched`);
 
   const result: Record<string, unknown> = {
     generatedAt: new Date().toISOString(),

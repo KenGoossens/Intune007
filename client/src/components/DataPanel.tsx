@@ -264,6 +264,20 @@ function renderPanelContent(panel: DataPanelType) {
         />
       );
 
+    case "device_policy_states":
+      return (
+        <GenericTable
+          data={panel.data as Record<string, unknown>[]}
+          columns={[
+            { key: "displayName", label: "Policy Name" },
+            { key: "policyType", label: "Type" },
+            { key: "state", label: "State" },
+            { key: "platformType", label: "Platform" },
+            { key: "settingCount", label: "Settings" },
+          ]}
+        />
+      );
+
     case "device_app_install_states":
       return (
         <GenericTable

@@ -4,6 +4,7 @@ import {
   generateAlertRemediation,
 } from "../remediation/scriptGenerator.js";
 import { deployToIntune, deployAndAssign } from "../remediation/deployer.js";
+import { validateScript } from "../remediation/scriptValidator.js";
 import {
   listRemediationScripts,
   getRemediationScript,
@@ -11,17 +12,151 @@ import {
   deleteRemediationScript,
   updateRemediationScript,
 } from "../graph/remediation.js";
-import { sanitizeErrorMessage } from "../security.js";
+import { sanitizeErrorMessage, scanPowerShellScript } from "../security.js";
+import crypto from "crypto";
 
 const router = Router();
+
+// ─── User Approval Gate ──────────────────────────────────────────
+// Stores pending script deployments awaiting user approval.
+// Approvals expire after 30 minutes.
+
+interface PendingApproval {
+  id: string;
+  script: {
+    displayName: string;
+    description: string;
+    detectionScript: string;
+    remediationScript: string;
+    runAsAccount: "system" | "user";
+    explanation: string;
+  };
+  validation: {
+    valid: boolean;
+    summary: string;
+    syntaxErrors: string[];
+    pesterResults: { name: string; passed: boolean; message?: string }[];
+  };
+  createdAt: number;
+  groupId?: string;
+  scheduleMinutes?: number;
+}
+
+const pendingApprovals = new Map<string, PendingApproval>();
+const APPROVAL_TTL_MS = 30 * 60 * 1000; // 30 minutes
+
+/** Clean up expired approvals */
+function cleanupApprovals(): void {
+  const now = Date.now();
+  for (const [id, approval] of pendingApprovals) {
+    if (now - approval.createdAt > APPROVAL_TTL_MS) {
+      pendingApprovals.delete(id);
+    }
+  }
+}
+
+/**
+ * Create a pending approval for a script deployment.
+ * Returns the approval ID that the UI uses to approve/reject.
+ */
+export function createScriptApproval(
+  script: PendingApproval["script"],
+  validation: PendingApproval["validation"],
+  options?: { groupId?: string; scheduleMinutes?: number }
+): string {
+  cleanupApprovals();
+  const id = crypto.randomBytes(16).toString("hex");
+  pendingApprovals.set(id, {
+    id,
+    script,
+    validation,
+    createdAt: Date.now(),
+    groupId: options?.groupId,
+    scheduleMinutes: options?.scheduleMinutes,
+  });
+  return id;
+}
+
+/**
+ * GET /api/remediation/pending-approvals
+ * List scripts waiting for user approval.
+ */
+router.get("/pending-approvals", (_req: Request, res: Response) => {
+  cleanupApprovals();
+  const approvals = Array.from(pendingApprovals.values()).map((a) => ({
+    id: a.id,
+    displayName: a.script.displayName,
+    description: a.script.description,
+    detectionScript: a.script.detectionScript,
+    remediationScript: a.script.remediationScript,
+    runAsAccount: a.script.runAsAccount,
+    validation: a.validation,
+    createdAt: a.createdAt,
+    groupId: a.groupId,
+  }));
+  res.json({ approvals });
+});
+
+/**
+ * POST /api/remediation/approve/:id
+ * User approves a pending script for deployment.
+ */
+router.post("/approve/:id", async (req: Request, res: Response) => {
+  cleanupApprovals();
+  const approval = pendingApprovals.get(req.params.id as string);
+  if (!approval) {
+    res.status(404).json({ error: "Approval not found or expired" });
+    return;
+  }
+
+  // Final security scan before deploy
+  const detIssues = scanPowerShellScript(approval.script.detectionScript);
+  const remIssues = scanPowerShellScript(approval.script.remediationScript);
+  if (detIssues.length > 0 || remIssues.length > 0) {
+    pendingApprovals.delete(approval.id);
+    res.status(403).json({ error: `Script blocked: ${[...detIssues, ...remIssues].join("; ")}` });
+    return;
+  }
+
+  try {
+    let result;
+    if (approval.groupId) {
+      result = await deployAndAssign(
+        approval.script,
+        approval.groupId,
+        approval.scheduleMinutes
+      );
+    } else {
+      result = await deployToIntune(approval.script);
+    }
+    pendingApprovals.delete(approval.id);
+    res.json(result);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ error: sanitizeErrorMessage(msg) });
+  }
+});
+
+/**
+ * POST /api/remediation/reject/:id
+ * User rejects a pending script — removes it without deploying.
+ */
+router.post("/reject/:id", (req: Request, res: Response) => {
+  const existed = pendingApprovals.delete(req.params.id as string);
+  res.json({ success: true, existed });
+});
 
 /**
  * POST /api/remediation/generate
  * Generate a remediation script from a natural language description.
  * Body: { prompt: string, context?: { alertType?, alertDetails?, deviceInfo? } }
+ *
+ * Runs the quality validation pipeline and creates a pending approval.
+ * The script is NOT deployed until the user explicitly approves it via
+ * POST /api/remediation/approve/:id.
  */
 router.post("/generate", async (req: Request, res: Response) => {
-  const { prompt, context } = req.body;
+  const { prompt, context, groupId, scheduleMinutes } = req.body;
 
   if (!prompt || typeof prompt !== "string") {
     res.status(400).json({ error: "Missing or invalid 'prompt' field" });
@@ -30,7 +165,26 @@ router.post("/generate", async (req: Request, res: Response) => {
 
   try {
     const script = await generateRemediationScript(prompt, context);
-    res.json({ script });
+
+    // Run quality validation
+    const validation = await validateScript(
+      script.detectionScript,
+      script.remediationScript,
+      script.displayName
+    );
+
+    // Create pending approval
+    const approvalId = createScriptApproval(script, validation, {
+      groupId,
+      scheduleMinutes,
+    });
+
+    res.json({
+      script,
+      validation,
+      approvalId,
+      requiresApproval: true,
+    });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     res.status(500).json({ error: msg });

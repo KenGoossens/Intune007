@@ -189,24 +189,34 @@ export async function fullSync(): Promise<{ deviceCount: number; durationMs: num
   });
   insertMany(allDevices);
 
-  // Now get delta link for subsequent syncs
-  const deltaResponse = await client
-    .api(`${BETA}/deviceManagement/managedDevices/delta?$select=${DEVICE_SELECT}`)
-    .get();
-
-  // Consume the full delta response (we already have the data)
-  let deltaLink: string | null = null;
-  let resp = deltaResponse;
-  while (resp["@odata.nextLink"]) {
-    resp = await client.api(resp["@odata.nextLink"]).get();
-  }
-  deltaLink = resp["@odata.deltaLink"] || null;
-
-  if (deltaLink) {
-    setMeta("deltaLink", deltaLink);
-  }
+  // Mark cache as warm immediately — devices are in DB
   setMeta("lastFullSync", new Date().toISOString());
   setMeta("lastSync", new Date().toISOString());
+
+  // Now get delta link for subsequent syncs (non-fatal if this fails)
+  try {
+    // Use function-call URL format to prevent SDK from treating 'delta' as an entity key
+    const deltaUrl = `${BETA}/deviceManagement/managedDevices/delta?$select=${DEVICE_SELECT}`;
+    const deltaResponse = await client
+      .api(deltaUrl)
+      .version("beta")
+      .get();
+
+    // Consume the full delta response (we already have the data)
+    let deltaLink: string | null = null;
+    let resp = deltaResponse;
+    while (resp["@odata.nextLink"]) {
+      resp = await client.api(resp["@odata.nextLink"]).get();
+    }
+    deltaLink = resp["@odata.deltaLink"] || null;
+
+    if (deltaLink) {
+      setMeta("deltaLink", deltaLink);
+    }
+  } catch (err) {
+    console.warn("[DeviceCache] Delta link acquisition failed (will retry next sync):",
+      err instanceof Error ? err.message : "Unknown error");
+  }
 
   const duration = Date.now() - start;
   console.log(`[DeviceCache] Full sync complete: ${allDevices.length} devices in ${Math.round(duration / 1000)}s`);
@@ -227,6 +237,12 @@ export async function deltaSync(): Promise<{
   const deltaLink = getMeta("deltaLink");
 
   if (!deltaLink) {
+    // If we already synced recently (within 5 min) but just can't get a delta link,
+    // skip the full sync to avoid hammering the API every 2 minutes.
+    const lastSync = getMeta("lastSync");
+    if (lastSync && Date.now() - new Date(lastSync).getTime() < 5 * 60 * 1000) {
+      return { added: 0, modified: 0, removed: 0, durationMs: Date.now() - start };
+    }
     console.log("[DeviceCache] No delta link found — running full sync");
     const result = await fullSync();
     return { added: result.deviceCount, modified: 0, removed: 0, durationMs: result.durationMs };
