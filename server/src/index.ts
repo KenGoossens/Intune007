@@ -35,6 +35,7 @@ import docsRouter from "./routes/docs.js";
 import cveRouter from "./routes/cve.js";
 import tenantsRouter from "./routes/tenants.js";
 import doSimulatorRouter from "./routes/doSimulator.js";
+import configMgrRouter from "./routes/configmgr.js";
 import { alertScheduler } from "./alerts/scheduler.js";
 import { startTaskScheduler } from "./scheduler/taskScheduler.js";
 import { startCVEScheduler } from "./cve/scheduler.js";
@@ -117,6 +118,7 @@ app.use("/api/docs", docsRouter);
 app.use("/api/cve", cveRouter);
 app.use("/api/tenants", tenantsRouter);
 app.use("/api/do-simulator", doSimulatorRouter);
+app.use("/api/configmgr", configMgrRouter);
 
 // Health check
 app.get("/api/health", (_req, res) => {

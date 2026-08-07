@@ -24,7 +24,8 @@ export type TargetPanel =
   | "analytics"
   | "insights"
   | "cveMonitor"
-  | "doSimulator";
+  | "doSimulator"
+  | "configMgr";
 
 export interface NavigationContext {
   /** Which panel to navigate to */

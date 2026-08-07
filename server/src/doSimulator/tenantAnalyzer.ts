@@ -22,6 +22,7 @@ import type {
   DOSite,
 } from "@intune-agent/shared";
 import { getManagedDevices } from "../graph/devices.js";
+import { getComanagementSummary } from "../configmgr/comanagement.js";
 
 export interface TenantPrefillResult {
   prefill: DOSimulationInput;
@@ -61,19 +62,47 @@ export async function analyseCurrentTenantForDO(): Promise<TenantPrefillResult> 
   else if (hybrid + aadj >= total * 0.5) identityModel = "hybrid";
   else if (domain >= total * 0.5) identityModel = "ad_only";
 
-  // Workload heuristic: how many devices are reporting via Intune mgmt agent
-  // (mdm or intuneClient) vs CM-only.
-  const mdm = devices.filter((d) => /mdm|intune/i.test(d.managementAgent || "")).length;
-  const intuneShare = mdm / total;
-  // Each 12.5% of MDM-managed devices ≈ 1 of 8 CM workloads moved.
-  const intuneWorkloadCount = Math.min(8, Math.round(intuneShare * 8));
+  // Workload count: prefer a PRECISE read from co-management client features
+  // (configurationManagerClientEnabledFeatures reports, per co-managed device,
+  // which of the 8 workloads Intune owns). A workload counts as "switched"
+  // when the majority of co-managed devices route it to Intune. Falls back to
+  // a management-agent share heuristic when no co-managed devices exist.
+  let intuneWorkloadCount = 0;
+  let coManagementEnabled = false;
 
-  notes.push(
-    `Analysed ${total} devices: ${aadj} Entra-joined · ${hybrid} hybrid · ${domain} domain-joined.`
-  );
-  notes.push(
-    `~${Math.round(intuneShare * 100)}% of devices are MDM-managed → estimated ${intuneWorkloadCount}/8 ConfigMgr workloads switched.`
-  );
+  const mdmShareFallback = () => {
+    const mdm = devices.filter((d) => /mdm|intune/i.test(d.managementAgent || "")).length;
+    const intuneShare = mdm / total;
+    intuneWorkloadCount = Math.min(8, Math.round(intuneShare * 8));
+    coManagementEnabled = intuneWorkloadCount > 0 && intuneWorkloadCount < 8;
+    notes.push(
+      `Analysed ${total} devices: ${aadj} Entra-joined · ${hybrid} hybrid · ${domain} domain-joined.`
+    );
+    notes.push(
+      `No co-managed devices detected → estimated ${intuneWorkloadCount}/8 ConfigMgr workloads switched from ~${Math.round(intuneShare * 100)}% MDM-managed share.`
+    );
+  };
+
+  try {
+    const summary = await getComanagementSummary();
+    if (summary.totalComanaged > 0) {
+      intuneWorkloadCount = summary.workloadSplit.filter(
+        (w) => w.intune > 0 && w.intune >= w.configMgr
+      ).length;
+      coManagementEnabled = true;
+      notes.push(
+        `Analysed ${total} devices: ${aadj} Entra-joined · ${hybrid} hybrid · ${domain} domain-joined.`
+      );
+      notes.push(
+        `${summary.totalComanaged} co-managed device(s) found → ${intuneWorkloadCount}/8 ConfigMgr workloads are majority-switched to Intune (read from co-management client features).`
+      );
+    } else {
+      mdmShareFallback();
+    }
+  } catch {
+    mdmShareFallback();
+  }
+
   notes.push(
     "ConfigMgr DP count, AD sites, subnets and per-site WAN bandwidth cannot be read from Graph — please fill those in for accurate per-site recommendations."
   );
@@ -104,7 +133,7 @@ export async function analyseCurrentTenantForDO(): Promise<TenantPrefillResult> 
         identityModel,
         intuneWorkloadCount,
         configMgrDPCount: 0,
-        coManagementEnabled: intuneWorkloadCount > 0 && intuneWorkloadCount < 8,
+        coManagementEnabled,
       },
       assumptions: {
         wanCostPerGB: 0.05,

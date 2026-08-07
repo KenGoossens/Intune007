@@ -8,23 +8,63 @@ import {
   Bot,
   User,
   Search,
+  Sparkles,
+  ArrowRight,
+  Check,
+  ChevronRight,
+  ChevronDown,
+  AlertCircle,
+  Wrench,
   X,
 } from "lucide-react";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
-import { useChatStore } from "../stores/chatStore.ts";
+import { useChatStore, type StreamStep } from "../stores/chatStore.ts";
 import { formatToolTitle } from "@intune-agent/shared";
 import { useAgentStream } from "../hooks/useAgentStream.ts";
 import { useNavigationStore } from "../stores/navigationStore.ts";
+import { getFollowUpSuggestions } from "../lib/followUpSuggestions.ts";
+
+/** Shared markdown renderer with PowerShell-aware code highlighting. */
+const markdownComponents: Components = {
+  code({ className, children, ...props }) {
+    const match = /language-(\w+)/.exec(className || "");
+    const codeString = String(children).replace(/\n$/, "");
+    // Heuristic: if no language tag but looks like PowerShell, highlight as powershell
+    const lang = match?.[1] || (looksLikePowerShell(codeString) ? "powershell" : "");
+    if (lang || codeString.includes("\n")) {
+      return (
+        <SyntaxHighlighter
+          style={oneDark}
+          language={lang || "text"}
+          PreTag="div"
+          customStyle={{
+            margin: "0.5em 0",
+            borderRadius: "8px",
+            fontSize: "0.8em",
+            border: "1px solid #374151",
+          }}
+        >
+          {codeString}
+        </SyntaxHighlighter>
+      );
+    }
+    return (
+      <code className={className} {...props}>
+        {children}
+      </code>
+    );
+  },
+};
 
 export default function ChatPanel({ onClose }: { onClose?: () => void }) {
   const [input, setInput] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const { messages, isStreaming, activeToolCall, clearChat } = useChatStore();
+  const { messages, isStreaming, activeToolCall, clearChat, lastToolNames, streamSteps, streamingText, stepsByMessage } = useChatStore();
   const { sendMessage } = useAgentStream();
 
   // Auto-execute queries from cross-panel navigation
@@ -43,7 +83,7 @@ export default function ChatPanel({ onClose }: { onClose?: () => void }) {
   // Auto-scroll to bottom on new messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, activeToolCall]);
+  }, [messages, activeToolCall, streamingText, streamSteps.length]);
 
   // Focus input on mount
   useEffect(() => {
@@ -57,6 +97,21 @@ export default function ChatPanel({ onClose }: { onClose?: () => void }) {
     setInput("");
     sendMessage(trimmed);
   };
+
+  // Tool-aware follow-up suggestions: shown once the agent has answered and the
+  // conversation is idle. Derived from the tools used in the last turn.
+  const lastMessage = messages[messages.length - 1];
+  const showFollowUps =
+    !isStreaming &&
+    !activeToolCall &&
+    lastMessage?.role === "assistant" &&
+    !!lastMessage.content;
+  const lastUserMessage = showFollowUps
+    ? [...messages].reverse().find((m) => m.role === "user")?.content
+    : undefined;
+  const followUps = showFollowUps
+    ? getFollowUpSuggestions(lastToolNames, { exclude: lastUserMessage })
+    : [];
 
   return (
     <div className="flex flex-col h-full bg-gray-900">
@@ -118,39 +173,10 @@ export default function ChatPanel({ onClose }: { onClose?: () => void }) {
                 <div className="whitespace-pre-wrap">{msg.content}</div>
               ) : (
                 <div className="chat-markdown">
-                  <ReactMarkdown
-                    remarkPlugins={[remarkGfm]}
-                    components={{
-                      code({ className, children, ...props }) {
-                        const match = /language-(\w+)/.exec(className || "");
-                        const codeString = String(children).replace(/\n$/, "");
-                        // Heuristic: if no language tag but looks like PowerShell, highlight as powershell
-                        const lang = match?.[1] || (looksLikePowerShell(codeString) ? "powershell" : "");
-                        if (lang || codeString.includes("\n")) {
-                          return (
-                            <SyntaxHighlighter
-                              style={oneDark}
-                              language={lang || "text"}
-                              PreTag="div"
-                              customStyle={{
-                                margin: "0.5em 0",
-                                borderRadius: "8px",
-                                fontSize: "0.8em",
-                                border: "1px solid #374151",
-                              }}
-                            >
-                              {codeString}
-                            </SyntaxHighlighter>
-                          );
-                        }
-                        return (
-                          <code className={className} {...props}>
-                            {children}
-                          </code>
-                        );
-                      },
-                    }}
-                  >
+                  {stepsByMessage[i] && stepsByMessage[i].length > 0 && (
+                    <StepsSummary steps={stepsByMessage[i]} />
+                  )}
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
                     {msg.content}
                   </ReactMarkdown>
                 </div>
@@ -167,34 +193,61 @@ export default function ChatPanel({ onClose }: { onClose?: () => void }) {
           </div>
         ))}
 
-        {/* Active tool call indicator */}
-        {activeToolCall && (
+        {/* Live streaming: the agent's reasoning trail + token-by-token answer */}
+        {isStreaming && (
           <div className="flex gap-3 justify-start">
             <div className="w-7 h-7 bg-brand-600 rounded-lg flex items-center justify-center shrink-0 mt-0.5">
               <Bot size={14} />
             </div>
-            <div className="bg-gray-800 rounded-xl px-4 py-2.5 text-sm text-gray-300 flex items-center gap-2">
-              <Loader2 size={14} className="animate-spin text-brand-400" />
-              <span>
-                Querying{" "}
-                <span className="text-brand-400 font-medium">
-                  {formatToolTitle(activeToolCall)}
-                </span>
-                ...
-              </span>
+            <div className="max-w-[85%] bg-gray-800 rounded-xl px-4 py-2.5 text-sm text-gray-200 leading-relaxed space-y-2">
+              {streamSteps.length > 0 && (
+                <div className="flex flex-col gap-1">
+                  {streamSteps.map((step, si) => (
+                    <StepRow key={si} step={step} />
+                  ))}
+                </div>
+              )}
+              {streamingText ? (
+                <div className="chat-markdown">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                    {streamingText}
+                  </ReactMarkdown>
+                  <span className="inline-block w-1.5 h-3.5 ml-0.5 bg-brand-400 animate-pulse align-middle rounded-sm" />
+                </div>
+              ) : (
+                streamSteps.length === 0 && (
+                  <div className="flex items-center gap-2 text-gray-400">
+                    <Loader2 size={14} className="animate-spin" />
+                    Thinking...
+                  </div>
+                )
+              )}
             </div>
           </div>
         )}
 
-        {/* Streaming indicator (after tool calls complete) */}
-        {isStreaming && !activeToolCall && messages[messages.length - 1]?.role === "user" && (
-          <div className="flex gap-3 justify-start">
-            <div className="w-7 h-7 bg-brand-600 rounded-lg flex items-center justify-center shrink-0 mt-0.5">
-              <Bot size={14} />
+        {/* Tool-aware follow-up suggestions */}
+        {followUps.length > 0 && (
+          <div className="flex flex-col gap-1.5 pl-10">
+            <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-gray-500">
+              <Sparkles size={11} className="text-brand-400/70" />
+              Suggested follow-ups
             </div>
-            <div className="bg-gray-800 rounded-xl px-4 py-2.5 text-sm text-gray-400 flex items-center gap-2">
-              <Loader2 size={14} className="animate-spin" />
-              Thinking...
+            <div className="flex flex-wrap gap-1.5">
+              {followUps.map((s) => (
+                <button
+                  key={s}
+                  onClick={() => sendMessage(s)}
+                  disabled={isStreaming}
+                  className="group flex items-center gap-1.5 text-left text-[12px] px-3 py-1.5 rounded-full bg-gray-800/60 hover:bg-brand-600/15 text-gray-300 hover:text-brand-300 transition-colors border border-gray-700/50 hover:border-brand-500/40 disabled:opacity-50"
+                >
+                  {s}
+                  <ArrowRight
+                    size={11}
+                    className="shrink-0 text-gray-600 group-hover:text-brand-400 transition-colors"
+                  />
+                </button>
+              ))}
             </div>
           </div>
         )}
@@ -234,6 +287,61 @@ export default function ChatPanel({ onClose }: { onClose?: () => void }) {
 }
 
 // formatToolName removed — using shared formatToolTitle instead
+
+/** A single tool step in the agent's reasoning trail. */
+function StepRow({ step }: { step: StreamStep }) {
+  const title = formatToolTitle(step.name);
+  return (
+    <div className="flex items-center gap-2 text-[12px]">
+      {step.status === "running" ? (
+        <Loader2 size={12} className="animate-spin text-brand-400 shrink-0" />
+      ) : step.status === "error" ? (
+        <AlertCircle size={12} className="text-red-400 shrink-0" />
+      ) : (
+        <Check size={12} className="text-emerald-400 shrink-0" />
+      )}
+      <span className={step.status === "running" ? "text-gray-300" : "text-gray-400"}>
+        {step.status === "running" ? (
+          <>
+            Querying <span className="text-brand-300">{title}</span>…
+          </>
+        ) : (
+          title
+        )}
+        {step.status !== "running" && typeof step.count === "number" && (
+          <span className="text-gray-500"> · {step.count} result{step.count === 1 ? "" : "s"}</span>
+        )}
+        {step.status === "error" && step.error && (
+          <span className="text-red-400/80"> — {step.error}</span>
+        )}
+      </span>
+    </div>
+  );
+}
+
+/** Collapsible summary of the tool steps that produced an answer. */
+function StepsSummary({ steps }: { steps: StreamStep[] }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mb-2 border border-gray-700/60 rounded-lg overflow-hidden">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] text-gray-400 hover:text-gray-200 hover:bg-gray-700/30 transition-colors"
+      >
+        {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+        <Wrench size={11} className="text-brand-400/70" />
+        {steps.length} step{steps.length === 1 ? "" : "s"}
+      </button>
+      {open && (
+        <div className="px-2.5 py-1.5 flex flex-col gap-1 bg-gray-900/40 border-t border-gray-700/60">
+          {steps.map((s, i) => (
+            <StepRow key={i} step={s} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function looksLikePowerShell(code: string): boolean {
   const indicators = [

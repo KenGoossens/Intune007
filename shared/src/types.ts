@@ -202,6 +202,7 @@ export interface SSEToolResultEvent {
   name: string;
   data: unknown[];
   totalCount?: number;
+  error?: string;
 }
 
 export interface SSETokenEvent {
@@ -277,7 +278,15 @@ export type DataPanelType =
   | "agent_notes"
   | "scheduled_tasks"
   | "tenants"
-  | "do_simulation";
+  | "do_simulation"
+  | "comanagement_summary"
+  | "comanaged_devices"
+  | "comanagement_eligible"
+  | "configmgr_collections"
+  | "configmgr_deployments"
+  | "configmgr_applications"
+  | "configmgr_cmpivot"
+  | "configmgr_status";
 
 export interface DataPanel {
   id: string;
@@ -370,6 +379,18 @@ export const TOOL_TO_PANEL_TYPE: Record<string, DataPanelType> = {
   analyze_current_tenant_for_do: "do_simulation",
   generate_do_intune_profile: "do_simulation",
   list_do_simulations: "do_simulation",
+  // ─── Configuration Manager (co-management) ─────────
+  get_comanagement_summary: "comanagement_summary",
+  get_comanaged_devices: "comanaged_devices",
+  get_comanagement_eligible_devices: "comanagement_eligible",
+  get_configmgr_client_health: "comanaged_devices",
+  // ─── Configuration Manager (on-prem AdminService) ───
+  get_configmgr_connection_status: "configmgr_status",
+  get_configmgr_collections: "configmgr_collections",
+  get_configmgr_deployments: "configmgr_deployments",
+  get_configmgr_applications: "configmgr_applications",
+  trigger_configmgr_client_action: "device_action",
+  run_cmpivot_query: "configmgr_cmpivot",
 };
 
 export const TOOL_TO_PANEL_TITLE: Record<string, string> = {
@@ -453,6 +474,16 @@ export const TOOL_TO_PANEL_TITLE: Record<string, string> = {
   analyze_current_tenant_for_do: "DO Tenant Analysis",
   generate_do_intune_profile: "Intune DO Profile",
   list_do_simulations: "Saved DO Simulations",
+  get_comanagement_summary: "Co-management Overview",
+  get_comanaged_devices: "Co-managed Devices",
+  get_comanagement_eligible_devices: "Co-management Eligibility",
+  get_configmgr_client_health: "ConfigMgr Client Health",
+  get_configmgr_connection_status: "ConfigMgr Connection",
+  get_configmgr_collections: "ConfigMgr Collections",
+  get_configmgr_deployments: "ConfigMgr Deployments",
+  get_configmgr_applications: "ConfigMgr Applications",
+  trigger_configmgr_client_action: "ConfigMgr Client Action",
+  run_cmpivot_query: "CMPivot Query Results",
 };
 
 /**
@@ -523,6 +554,13 @@ export const PANEL_TO_TOOLS: Record<string, string[]> = {
   timeline: ["get_device_timeline"],
   tasks: ["create_scheduled_task", "list_scheduled_tasks", "manage_scheduled_task"],
   analytics: [],
+  configMgr: [
+    "get_comanagement_summary", "get_comanaged_devices",
+    "get_comanagement_eligible_devices", "get_configmgr_client_health",
+    "get_configmgr_connection_status", "get_configmgr_collections",
+    "get_configmgr_deployments", "get_configmgr_applications",
+    "trigger_configmgr_client_action", "run_cmpivot_query",
+  ],
 };
 
 // ─── Intune Entity Types (lean versions for display) ─────────────
@@ -549,6 +587,140 @@ export interface ManagedDeviceInfo {
   freeStorageSpaceInBytes?: number;
   autopilotEnrolled?: boolean;
   azureADDeviceId?: string;
+}
+
+// ─── Configuration Manager / Co-management ───────────────────────
+
+/**
+ * The 8 co-management workloads exposed by Graph on a managed device.
+ * For each workload, `true` means Intune is the authority; `false` means
+ * Configuration Manager still owns that workload.
+ */
+export interface ConfigurationManagerClientEnabledFeatures {
+  inventory?: boolean;
+  modernApps?: boolean;
+  resourceAccess?: boolean;
+  deviceConfiguration?: boolean;
+  compliancePolicy?: boolean;
+  windowsUpdateForBusiness?: boolean;
+  endpointProtection?: boolean;
+  officeApps?: boolean;
+}
+
+export interface ConfigManagerClientHealthState {
+  state?: string;
+  errorCode?: number;
+  lastSyncDateTime?: string;
+}
+
+export interface ConfigManagerClientInformation {
+  clientIdentifier?: string;
+  isBlocked?: boolean;
+  clientVersion?: string;
+}
+
+/** A co-managed device (managed by both Configuration Manager and Intune). */
+export interface ComanagedDeviceInfo {
+  id: string;
+  deviceName: string;
+  operatingSystem: string;
+  osVersion: string;
+  managementAgent: string;
+  complianceState: string;
+  userPrincipalName: string;
+  lastSyncDateTime: string;
+  manufacturer: string;
+  model: string;
+  enabledFeatures?: ConfigurationManagerClientEnabledFeatures;
+  clientHealthState?: ConfigManagerClientHealthState;
+  clientInformation?: ConfigManagerClientInformation;
+}
+
+/** A device returned by the co-management eligibility endpoint. */
+export interface ComanagementEligibleDeviceInfo {
+  id: string;
+  deviceName: string;
+  deviceType: string;
+  status: string;
+  clientRegistrationStatus: string;
+  ownerType: string;
+  managementAgents: string;
+  osVersion: string;
+  serialNumber: string;
+  manufacturer: string;
+  model: string;
+  upn: string;
+  userName: string;
+}
+
+/** Per-workload split of how many devices route each workload to Intune vs ConfigMgr. */
+export interface ComanagementWorkloadSplit {
+  workload: string;
+  label: string;
+  intune: number;
+  configMgr: number;
+}
+
+/** Aggregated co-management dashboard payload (drives the ConfigMgr panel). */
+export interface ComanagementSummary {
+  totalComanaged: number;
+  totalConfigMgrOnly: number;
+  totalEligible: number;
+  workloadSplit: ComanagementWorkloadSplit[];
+  clientHealth: { healthy: number; unhealthy: number; unknown: number };
+  eligibilityFunnel: { status: string; count: number }[];
+  devices: ComanagedDeviceInfo[];
+  generatedAt: string;
+}
+
+// ─── Configuration Manager AdminService (on-prem site data) ──────
+
+/** Connectivity/config state of the on-prem AdminService connector. */
+export interface ConfigMgrConnectionStatus {
+  configured: boolean;
+  connected: boolean;
+  authMode: string;
+  url?: string;
+  siteCode?: string;
+  siteName?: string;
+  version?: string;
+  error?: string;
+}
+
+/** A ConfigMgr collection (SMS_Collection). */
+export interface ConfigMgrCollectionInfo {
+  collectionId: string;
+  name: string;
+  memberCount: number;
+  collectionType: string;
+  comment: string;
+  limitToCollectionName: string;
+}
+
+/** A ConfigMgr deployment summary (SMS_DeploymentSummary). */
+export interface ConfigMgrDeploymentInfo {
+  deploymentId: string;
+  softwareName: string;
+  collectionName: string;
+  intent: string;
+  featureType: string;
+  targeted: number;
+  success: number;
+  errors: number;
+  inProgress: number;
+  unknown: number;
+}
+
+/** A ConfigMgr application (SMS_Application, latest revision). */
+export interface ConfigMgrApplicationInfo {
+  ciId: string;
+  name: string;
+  manufacturer: string;
+  version: string;
+  numberOfDeployments: number;
+  numberOfDevicesWithApp: number;
+  isDeployed: boolean;
+  dateCreated: string;
 }
 
 export interface CompliancePolicyInfo {

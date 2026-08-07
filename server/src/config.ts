@@ -29,6 +29,29 @@ export const config = {
   // server's localhost URL; in prod it should be the externally reachable URL.
   appBaseUrl: process.env.APP_BASE_URL || `http://localhost:${parseInt(process.env.PORT || "3001", 10)}`,
 
+  // Configuration Manager AdminService (optional, read-only). The feature is
+  // INERT unless CONFIGMGR_ADMINSERVICE_URL is set — no calls are ever made
+  // and the ConfigMgr "Site" tools report "not configured".
+  configMgr: {
+    // Full AdminService base URL, e.g. https://smsprovider.contoso.com/AdminService
+    // (on-prem SMS Provider) or the CMG AdminService endpoint (internet).
+    adminServiceUrl: process.env.CONFIGMGR_ADMINSERVICE_URL || "",
+    // How to authenticate: "azuread" (CMG + Entra token — default/recommended),
+    // "bearer" (static token for testing), "none", or "windows" (unsupported here).
+    authMode: process.env.CONFIGMGR_AUTH_MODE || "azuread",
+    // azuread mode: App ID URI (or client ID) of the CMG server app to request a token for.
+    resource: process.env.CONFIGMGR_ADMINSERVICE_RESOURCE || "",
+    // azuread mode: dedicated app registration; falls back to the main Azure AD app.
+    tenantId: process.env.CONFIGMGR_TENANT_ID || process.env.AZURE_TENANT_ID || "",
+    clientId: process.env.CONFIGMGR_CLIENT_ID || process.env.AZURE_CLIENT_ID || "",
+    clientSecret: process.env.CONFIGMGR_CLIENT_SECRET || process.env.AZURE_CLIENT_SECRET || "",
+    // bearer mode: static token supplied directly.
+    bearerToken: process.env.CONFIGMGR_BEARER_TOKEN || "",
+    // Allow self-signed / internal-CA certs on the SMS Provider (default: false).
+    allowInsecureTls:
+      (process.env.CONFIGMGR_ALLOW_INSECURE_TLS || "false").toLowerCase() === "true",
+  },
+
   // Server
   port: parseInt(process.env.PORT || "3001", 10),
 } as const;

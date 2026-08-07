@@ -83,6 +83,21 @@ import {
 } from "../doSimulator/store.js";
 import { buildAllProfiles as buildAllDOProfiles } from "../doSimulator/intuneProfile.js";
 import { analyseCurrentTenantForDO } from "../doSimulator/tenantAnalyzer.js";
+import {
+  getComanagementSummary,
+  getComanagedDevices,
+  getComanagementEligibleDevices,
+  getConfigMgrClientHealth,
+  triggerConfigMgrClientAction,
+} from "../configmgr/comanagement.js";
+import {
+  getConfigMgrConnectionStatus,
+  getCollections as getConfigMgrCollections,
+  getDeployments as getConfigMgrDeployments,
+  getApplications as getConfigMgrApplications,
+  isConfigMgrConfigured,
+  runCmPivot,
+} from "../configmgr/adminService.js";
 import { computeSecurityPosture } from "../routes/securityPosture.js";
 import { getAppHealthData } from "../routes/appHealth.js";
 import { checkAutopilotReadinessCore, ingestAutopilotCsv } from "../routes/autopilotReadiness.js";
@@ -1022,6 +1037,103 @@ export async function executeTool(
             profiles,
           }],
           totalCount: 1,
+        };
+      }
+
+      // ─── Configuration Manager (co-management) ─────────
+      case "get_comanagement_summary": {
+        const summary = await getComanagementSummary();
+        return { data: [summary], totalCount: 1 };
+      }
+
+      case "get_comanaged_devices": {
+        const result = await getComanagedDevices({ top: args.top });
+        return { data: result.items, totalCount: result.totalCount };
+      }
+
+      case "get_comanagement_eligible_devices": {
+        const result = await getComanagementEligibleDevices({
+          status: args.status,
+          top: args.top,
+        });
+        return { data: result.items, totalCount: result.totalCount };
+      }
+
+      case "get_configmgr_client_health": {
+        const result = await getConfigMgrClientHealth();
+        return { data: result.items, totalCount: result.totalCount };
+      }
+
+      // ─── Configuration Manager (on-prem AdminService, read-only) ─
+      case "get_configmgr_connection_status": {
+        const status = await getConfigMgrConnectionStatus();
+        return { data: [status], totalCount: 1 };
+      }
+
+      case "get_configmgr_collections": {
+        if (!isConfigMgrConfigured()) {
+          return {
+            data: [{ configured: false, message: "ConfigMgr AdminService is not connected. Open the Config Manager panel → Site (on-prem) tab → Connect to set it up." }],
+            totalCount: 0,
+          };
+        }
+        const items = await getConfigMgrCollections({ filter: args.filter, top: args.top });
+        return { data: items, totalCount: items.length };
+      }
+
+      case "get_configmgr_deployments": {
+        if (!isConfigMgrConfigured()) {
+          return {
+            data: [{ configured: false, message: "ConfigMgr AdminService is not connected. Open the Config Manager panel → Site (on-prem) tab → Connect to set it up." }],
+            totalCount: 0,
+          };
+        }
+        const items = await getConfigMgrDeployments({ filter: args.filter, top: args.top });
+        return { data: items, totalCount: items.length };
+      }
+
+      case "get_configmgr_applications": {
+        if (!isConfigMgrConfigured()) {
+          return {
+            data: [{ configured: false, message: "ConfigMgr AdminService is not connected. Open the Config Manager panel → Site (on-prem) tab → Connect to set it up." }],
+            totalCount: 0,
+          };
+        }
+        const items = await getConfigMgrApplications({ nameContains: args.nameContains, top: args.top });
+        return { data: items, totalCount: items.length };
+      }
+
+      // ─── Configuration Manager write actions (confirmation-gated) ─
+      case "trigger_configmgr_client_action": {
+        if (!isValidUUID(args.deviceId)) {
+          return { data: [], error: "Invalid device ID — must be a valid UUID." };
+        }
+        const result = await triggerConfigMgrClientAction(
+          String(args.deviceId),
+          String(args.action)
+        );
+        return { data: [result], totalCount: 1 };
+      }
+
+      case "run_cmpivot_query": {
+        if (!isConfigMgrConfigured()) {
+          return {
+            data: [{ configured: false, message: "ConfigMgr AdminService is not connected. Open the Config Manager panel → Site (on-prem) tab → Connect to set it up." }],
+            totalCount: 0,
+          };
+        }
+        const cmpivot = await runCmPivot(
+          {
+            resourceId: typeof args.resourceId === "number" ? args.resourceId : undefined,
+            deviceName: args.deviceName ? String(args.deviceName) : undefined,
+          },
+          String(args.query)
+        );
+        return {
+          data: cmpivot.rows.length > 0
+            ? cmpivot.rows
+            : [{ status: cmpivot.status, message: cmpivot.status === "timeout" ? "CMPivot timed out waiting for the device to respond." : "Query returned no rows.", operationId: cmpivot.operationId }],
+          totalCount: cmpivot.rows.length,
         };
       }
 

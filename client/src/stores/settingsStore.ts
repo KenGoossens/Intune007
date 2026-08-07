@@ -45,6 +45,7 @@ const DEFAULT_VISIBILITY: Record<string, boolean> = {
   tasks: true,
   analytics: true,
   doSimulator: true,
+  configMgr: true,
 };
 
 export const useSettingsStore = create<SettingsState>()(

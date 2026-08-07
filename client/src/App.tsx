@@ -26,6 +26,7 @@ import SettingsPanel from "./components/SettingsPanel.tsx";
 import SparkleOverlay from "./components/SparkleOverlay.tsx";
 import TenantSwitcher from "./components/TenantSwitcher.tsx";
 import DOSimulatorPanel from "./components/DOSimulatorPanel.tsx";
+import ConfigMgrPanel from "./components/ConfigMgrPanel.tsx";
 import { GripVertical, Shield, MessageSquare, X } from "lucide-react";
 import { useAlertStore } from "./stores/alertStore.ts";
 import { useNavigationStore } from "./stores/navigationStore.ts";
@@ -33,7 +34,7 @@ import { useChatStore } from "./stores/chatStore.ts";
 import { useActivityStore } from "./stores/activityStore.ts";
 import { useSettingsStore } from "./stores/settingsStore.ts";
 
-type ActivePanel = "alerts" | "data" | "remediation" | "analytics" | "policies" | "policyBuilder" | "policyDiff" | "riskScores" | "troubleshooter" | "forecast" | "queryBuilder" | "appHealth" | "autopilotReadiness" | "baselines" | "timeline" | "securityPosture" | "reportGenerator" | "deviceCard" | "cveMonitor" | "doSimulator" | "logs" | "tasks" | "insights" | "settings";
+type ActivePanel = "alerts" | "data" | "remediation" | "analytics" | "policies" | "policyBuilder" | "policyDiff" | "riskScores" | "troubleshooter" | "forecast" | "queryBuilder" | "appHealth" | "autopilotReadiness" | "baselines" | "timeline" | "securityPosture" | "reportGenerator" | "deviceCard" | "cveMonitor" | "doSimulator" | "configMgr" | "logs" | "tasks" | "insights" | "settings";
 
 interface NavItem {
   id: ActivePanel;
@@ -56,6 +57,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: "remediation",        label: "Remediation",         section: "operations" },
   { id: "troubleshooter",     label: "Troubleshooter",      section: "operations" },
   { id: "doSimulator",        label: "DO Simulator",        section: "operations" },
+  { id: "configMgr",          label: "Config Manager",      section: "operations" },
   // Insights — alphabetical
   { id: "analytics",          label: "Analytics",           section: "insights" },
   { id: "appHealth",          label: "App Health",          section: "insights" },
@@ -266,6 +268,8 @@ export default function App() {
             <CVEMonitorPanel />
           ) : activePanel === "doSimulator" ? (
             <DOSimulatorPanel />
+          ) : activePanel === "configMgr" ? (
+            <ConfigMgrPanel />
           ) : activePanel === "reportGenerator" ? (
             <ReportGeneratorPanel />
           ) : activePanel === "deviceCard" ? (

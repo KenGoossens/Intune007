@@ -15,6 +15,11 @@ server/src/data/
 # Azure Functions local settings (contains secrets)
 azure-functions/local.settings.json
 
+# Azurite local storage emulator state
+__azurite_db_blob__.json
+__azurite_db_blob_extent__.json
+__blobstorage__/
+
 # Build outputs
 server/dist/
 client/dist/

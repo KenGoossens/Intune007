@@ -173,6 +173,8 @@ export const DESTRUCTIVE_TOOLS = new Set([
   "deploy_hash_collector",
   "remove_app",
   "bulk_rename_apps",
+  "trigger_configmgr_client_action",
+  "run_cmpivot_query",
 ]);
 
 /** Tools that are read-only and safe */

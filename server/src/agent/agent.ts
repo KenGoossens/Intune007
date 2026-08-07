@@ -2,6 +2,8 @@ import { AzureOpenAI } from "openai";
 import type {
   ChatCompletionMessageParam,
   ChatCompletionToolMessageParam,
+  ChatCompletionAssistantMessageParam,
+  ChatCompletionTool,
 } from "openai/resources/chat/completions.js";
 import { config } from "../config.js";
 import { agentTools } from "./tools.js";
@@ -74,6 +76,15 @@ WINDOWS AUTOPILOT:
 - Enrollment Status Page (ESP): shows deployment progress to the user during OOBE (app installs, policy applies, account setup).
 - Autopilot Reset: re-provisions the device without reimaging. Keeps Azure AD join and Intune enrollment, removes apps/settings and re-applies policies.
 - Autopilot profiles: OOBE settings (skip privacy, EULA, cortana), join type (Azure AD join or Hybrid Azure AD join), user account type (standard or admin).
+
+CONFIGURATION MANAGER & CO-MANAGEMENT:
+- Co-management lets a Windows device be managed by BOTH Configuration Manager (ConfigMgr/SCCM/MECM) and Intune at the same time.
+- managementAgent on a device tells you the channel: 'configurationManagerClient' = ConfigMgr only; 'configurationManagerClientMdm' / 'configurationManagerClientMdmEas' = co-managed (ConfigMgr + Intune); 'mdm'/'intuneClient' = Intune only.
+- The co-management "workload slider" moves authority for a workload from ConfigMgr to Intune. There are 8 workloads exposed per device (configurationManagerClientEnabledFeatures): compliance policies, device configuration, endpoint protection, resource access policies, client apps, Office Click-to-Run apps, Windows Update policies, and inventory/Endpoint analytics. For each, true = Intune is the authority, false = ConfigMgr still owns it.
+- Co-management eligibility: devices can be 'comanaged', 'eligible', 'eligibleButNotAzureAdJoined', 'needsOsUpdate', 'ineligible', or 'scheduledForEnrollment'. Devices must be Entra-joined (or hybrid) and meet OS requirements to onboard.
+- ConfigMgr client health (configurationManagerClientHealthState) reports whether the ConfigMgr client on a co-managed device is healthy; a broken client can stall workload transitions.
+- Tenant attach surfaces ConfigMgr devices in the Intune admin center and enables cloud-initiated actions; full co-management additionally moves workloads to Intune.
+- This app can report co-management status (adoption, per-workload split, client health, eligibility) directly from Graph. When the on-prem AdminService connector is connected, it can also READ ConfigMgr site data — collections, deployment status, and applications. It does NOT perform ConfigMgr writes (creating or modifying deployments/collections, running CMPivot) — those are a future capability. If the user asks about ConfigMgr collections/deployments/apps and the connector is not connected, tell them to open the Config Manager panel, go to the Site (on-prem) tab, and click Connect to set up the AdminService connection (no file editing needed).
 
 APP MANAGEMENT:
 - App types: Win32 (LOB), MSI, MSIX, Microsoft Store (new), Web links, iOS store apps, Android managed Google Play, macOS DMG/PKG, Office suite, Edge, Defender.
@@ -237,6 +248,136 @@ function toOpenAIMessages(
 }
 
 /**
+ * Normalized result of a single model turn, regardless of streaming mode.
+ */
+interface ModelResponse {
+  message: ChatCompletionAssistantMessageParam;
+  finishReason: string;
+  usage?: { prompt_tokens: number; completion_tokens: number };
+}
+
+interface ModelRequestParams {
+  model: string;
+  messages: ChatCompletionMessageParam[];
+  tools?: ChatCompletionTool[];
+  tool_choice?: "auto";
+}
+
+/**
+ * Calls Azure OpenAI for one turn and returns a normalized assistant message.
+ *
+ * When `stream` is true, content tokens are emitted incrementally via `onToken`
+ * as they arrive, and tool-call deltas are accumulated into a complete message.
+ * When false, a single non-streaming completion is requested (legacy path used
+ * by the JSON endpoint). Either way the caller receives the same shape, so the
+ * agent loop logic stays identical.
+ */
+async function getModelResponse(
+  client: AzureOpenAI,
+  params: ModelRequestParams,
+  stream: boolean,
+  onToken: (content: string) => void
+): Promise<ModelResponse> {
+  if (!stream) {
+    const completion = await client.chat.completions.create({
+      ...params,
+      stream: false,
+    });
+    const choice = completion.choices[0];
+    const m = choice?.message;
+    const message: ChatCompletionAssistantMessageParam = {
+      role: "assistant",
+      content: m?.content ?? null,
+      ...(m?.tool_calls && m.tool_calls.length > 0
+        ? {
+            tool_calls: m.tool_calls.map((tc) => ({
+              id: tc.id,
+              type: "function" as const,
+              function: {
+                name: tc.function.name,
+                arguments: tc.function.arguments,
+              },
+            })),
+          }
+        : {}),
+    };
+    return {
+      message,
+      finishReason: choice?.finish_reason ?? "stop",
+      usage: completion.usage
+        ? {
+            prompt_tokens: completion.usage.prompt_tokens,
+            completion_tokens: completion.usage.completion_tokens,
+          }
+        : undefined,
+    };
+  }
+
+  // Streaming path: accumulate content + tool-call deltas.
+  const streamResp = await client.chat.completions.create({
+    ...params,
+    stream: true,
+    stream_options: { include_usage: true },
+  });
+
+  let content = "";
+  let finishReason = "";
+  let usage: { prompt_tokens: number; completion_tokens: number } | undefined;
+  const toolCallsAcc: Record<number, { id: string; name: string; arguments: string }> = {};
+
+  for await (const chunk of streamResp) {
+    const choice = chunk.choices[0];
+    if (choice) {
+      const delta = choice.delta;
+      if (delta?.content) {
+        content += delta.content;
+        onToken(delta.content);
+      }
+      if (delta?.tool_calls) {
+        for (const tc of delta.tool_calls) {
+          const idx = tc.index ?? 0;
+          if (!toolCallsAcc[idx]) {
+            toolCallsAcc[idx] = { id: "", name: "", arguments: "" };
+          }
+          if (tc.id) toolCallsAcc[idx].id = tc.id;
+          if (tc.function?.name) toolCallsAcc[idx].name = tc.function.name;
+          if (tc.function?.arguments) toolCallsAcc[idx].arguments += tc.function.arguments;
+        }
+      }
+      if (choice.finish_reason) finishReason = choice.finish_reason;
+    }
+    // With include_usage, the final chunk carries usage and has empty choices.
+    if (chunk.usage) {
+      usage = {
+        prompt_tokens: chunk.usage.prompt_tokens,
+        completion_tokens: chunk.usage.completion_tokens,
+      };
+    }
+  }
+
+  const orderedToolCalls = Object.keys(toolCallsAcc)
+    .map(Number)
+    .sort((a, b) => a - b)
+    .map((k) => toolCallsAcc[k]);
+
+  const message: ChatCompletionAssistantMessageParam = {
+    role: "assistant",
+    content: content || null,
+    ...(orderedToolCalls.length > 0
+      ? {
+          tool_calls: orderedToolCalls.map((tc) => ({
+            id: tc.id,
+            type: "function" as const,
+            function: { name: tc.name, arguments: tc.arguments },
+          })),
+        }
+      : {}),
+  };
+
+  return { message, finishReason: finishReason || "stop", usage };
+}
+
+/**
  * Runs the agent loop: sends messages to Azure OpenAI with tools,
  * executes tool calls, streams results via callbacks, and repeats
  * until the model produces a final text response.
@@ -245,9 +386,11 @@ export async function runAgentLoop(
   userMessage: string,
   history: ChatMessage[],
   callbacks: AgentStreamCallbacks,
-  disabledTools: string[] = []
+  disabledTools: string[] = [],
+  options: { stream?: boolean } = {}
 ): Promise<void> {
   console.log(`\n[Agent] New request: "${userMessage}"`);
+  const streamEnabled = options.stream === true;
   const client = createOpenAIClient();
   const tracker = analyticsTracker.startRequest(userMessage, config.azureOpenAI.deployment);
 
@@ -310,37 +453,31 @@ export async function runAgentLoop(
         ? agentTools.filter((t) => !disabledSet.has(t.function.name))
         : agentTools;
 
-      const completion = await client.chat.completions.create({
-        model: config.azureOpenAI.deployment,
-        messages,
-        tools: activeTools.length > 0 ? activeTools : undefined,
-        tool_choice: activeTools.length > 0 ? "auto" : undefined,
-      });
+      const { message: assistantMessage, finishReason, usage } = await getModelResponse(
+        client,
+        {
+          model: config.azureOpenAI.deployment,
+          messages,
+          tools: activeTools.length > 0 ? activeTools : undefined,
+          tool_choice: activeTools.length > 0 ? "auto" : undefined,
+        },
+        streamEnabled,
+        callbacks.onToken
+      );
 
-      console.log(`[Agent] OpenAI responded in ${Date.now() - startTime}ms — finish_reason: ${completion.choices[0]?.finish_reason}`);
+      console.log(`[Agent] OpenAI responded in ${Date.now() - startTime}ms — finish_reason: ${finishReason}`);
 
       // Track token usage from this iteration
-      if (completion.usage) {
-        tracker.addTokenUsage(
-          completion.usage.prompt_tokens,
-          completion.usage.completion_tokens
-        );
+      if (usage) {
+        tracker.addTokenUsage(usage.prompt_tokens, usage.completion_tokens);
       }
-
-      const choice = completion.choices[0];
-      if (!choice) {
-        callbacks.onError("No response from Azure OpenAI");
-        return;
-      }
-
-      const assistantMessage = choice.message;
 
       // Append assistant message to conversation
       messages.push(assistantMessage);
 
       // If the model wants to call tools
       if (
-        choice.finish_reason === "tool_calls" ||
+        finishReason === "tool_calls" ||
         (assistantMessage.tool_calls && assistantMessage.tool_calls.length > 0)
       ) {
         for (const toolCall of assistantMessage.tool_calls ?? []) {
@@ -416,8 +553,9 @@ export async function runAgentLoop(
       }
 
       // Model produced a final text response
-      if (choice.finish_reason === "stop" || choice.finish_reason === "length") {
-        const content = assistantMessage.content || "";
+      if (finishReason === "stop" || finishReason === "length") {
+        const content =
+          typeof assistantMessage.content === "string" ? assistantMessage.content : "";
         console.log(`[Agent] Final response (${content.length} chars)`);
         tracker.finish();
 
@@ -432,16 +570,20 @@ export async function runAgentLoop(
           console.warn("[Agent] Learning log failed:", learnErr);
         }
 
-        callbacks.onToken(content);
+        // In streaming mode the tokens were already emitted incrementally;
+        // emit the full content only when not streaming to avoid duplication.
+        if (!streamEnabled) {
+          callbacks.onToken(content);
+        }
         callbacks.onDone(content);
         return;
       }
 
       // Unexpected finish reason
-      tracker.setError(`Unexpected finish reason: ${choice.finish_reason}`);
+      tracker.setError(`Unexpected finish reason: ${finishReason}`);
       tracker.finish();
       callbacks.onError(
-        `Unexpected finish reason: ${choice.finish_reason}`
+        `Unexpected finish reason: ${finishReason}`
       );
       return;
     }

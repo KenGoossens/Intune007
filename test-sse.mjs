@@ -1,6 +1,6 @@
-// Quick test to see raw SSE output from the chat endpoint
+// Quick test to see raw SSE output from the streaming chat endpoint
 async function main() {
-  const res = await fetch("http://localhost:3001/api/chat", {
+  const res = await fetch("http://localhost:3001/api/chat/stream", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ message: "hi", history: [] }),

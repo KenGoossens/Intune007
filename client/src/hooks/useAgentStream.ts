@@ -4,6 +4,7 @@ import { useActivityStore } from "../stores/activityStore.ts";
 import { useNavigationStore, type TargetPanel } from "../stores/navigationStore.ts";
 import { useSettingsStore } from "../stores/settingsStore.ts";
 import { PANEL_TO_TOOLS } from "@intune-agent/shared";
+import type { SSEEvent } from "@intune-agent/shared";
 
 /**
  * Map of tool names to the panel they should auto-navigate to.
@@ -105,6 +106,20 @@ const TOOL_PANEL_MAP: Record<string, { panel: TargetPanel; deviceNameArg?: strin
   generate_do_intune_profile: { panel: "doSimulator" as TargetPanel },
   list_do_simulations: { panel: "doSimulator" as TargetPanel },
 
+  // Configuration Manager (co-management)
+  get_comanagement_summary: { panel: "configMgr" as TargetPanel },
+  get_comanaged_devices: { panel: "configMgr" as TargetPanel },
+  get_comanagement_eligible_devices: { panel: "configMgr" as TargetPanel },
+  get_configmgr_client_health: { panel: "configMgr" as TargetPanel },
+
+  // Configuration Manager (on-prem AdminService)
+  get_configmgr_connection_status: { panel: "configMgr" as TargetPanel },
+  get_configmgr_collections: { panel: "configMgr" as TargetPanel },
+  get_configmgr_deployments: { panel: "configMgr" as TargetPanel },
+  get_configmgr_applications: { panel: "configMgr" as TargetPanel },
+  trigger_configmgr_client_action: { panel: "configMgr" as TargetPanel },
+  run_cmpivot_query: { panel: "configMgr" as TargetPanel },
+
   // Learning / Analytics
   get_learning_stats: { panel: "analytics" },
 };
@@ -121,8 +136,9 @@ interface ChatApiResponse {
 }
 
 /**
- * Hook that sends a message to the agent backend via POST /api/chat
- * and processes the JSON response, updating the store with results.
+ * Hook that sends a message to the agent backend via POST /api/chat/stream
+ * and consumes the Server-Sent Events stream, updating the store in real time
+ * so the UI can show the agent's steps and stream the answer token-by-token.
  */
 export function useAgentStream() {
   const store = useChatStore;
@@ -132,24 +148,18 @@ export function useAgentStream() {
     if (streamingRef.current) return;
     streamingRef.current = true;
 
-    const {
-      addUserMessage,
-      addAssistantMessage,
-      setStreaming,
-      setActiveToolCall,
-      addDataPanel,
-    } = store.getState();
-
-    addUserMessage(userMessage);
-    setStreaming(true);
-    setActiveToolCall("processing");
-    useActivityStore.getState().addActivity("agent-chat");
-
-    // Build conversation history from store (user + assistant messages only)
-    const currentMessages = store.getState().messages;
-    const history = currentMessages
-      .filter((m) => m.role === "user" || m.role === "assistant")
+    // Build conversation history BEFORE adding the new message (the server
+    // appends the new message itself, so we must not duplicate it here).
+    const history = store
+      .getState()
+      .messages.filter((m) => m.role === "user" || m.role === "assistant")
       .map((m) => ({ role: m.role, content: m.content }));
+
+    const { beginTurn, noteToolCall, noteToolResult, appendStreamingText, endTurn, failTurn, addDataPanel } =
+      store.getState();
+
+    beginTurn(userMessage);
+    useActivityStore.getState().addActivity("agent-chat");
 
     // Compute disabled tools based on settings panel toggles
     const panelVis = useSettingsStore.getState().panelVisibility;
@@ -160,55 +170,107 @@ export function useAgentStream() {
       }
     }
 
+    const toolNames: string[] = [];
+    let navigated = false;
+    let finalText = "";
+    let errorText = "";
+
+    const handleEvent = (event: SSEEvent) => {
+      switch (event.type) {
+        case "tool_call":
+          noteToolCall(event.name);
+          break;
+        case "tool_result": {
+          toolNames.push(event.name);
+          const count =
+            event.totalCount ?? (Array.isArray(event.data) ? event.data.length : undefined);
+          noteToolResult(event.name, count, event.error);
+
+          if (Array.isArray(event.data) && event.data.length > 0) {
+            addDataPanel(event.name, event.data, event.totalCount);
+
+            // Auto-navigate to the visual panel for the first data-bearing tool.
+            if (!navigated) {
+              const mapping = TOOL_PANEL_MAP[event.name];
+              if (mapping) {
+                let deviceName: string | undefined;
+                if (mapping.deviceNameArg) {
+                  const firstRow = event.data[0] as Record<string, unknown> | undefined;
+                  deviceName = firstRow
+                    ? String(firstRow.deviceName || firstRow.device_name || firstRow.name || "")
+                    : undefined;
+                  if (deviceName === "" || deviceName === "undefined") deviceName = undefined;
+                }
+                useNavigationStore.getState().navigateTo(mapping.panel, { deviceName });
+                navigated = true;
+              }
+            }
+          }
+          break;
+        }
+        case "token":
+          appendStreamingText(event.content);
+          break;
+        case "done":
+          finalText = event.fullResponse;
+          break;
+        case "error":
+          errorText = event.message;
+          break;
+      }
+    };
+
     try {
-      const response = await fetch("/api/chat", {
+      const response = await fetch("/api/chat/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: userMessage, history, disabledTools }),
       });
 
-      const data: ChatApiResponse = await response.json();
+      if (!response.ok || !response.body) {
+        const text = await response.text().catch(() => "");
+        throw new Error(text || `HTTP ${response.status}`);
+      }
 
-      // Add tool result panels + auto-navigate to relevant panel
-      let navigated = false;
-      for (const toolResult of data.toolResults) {
-        if (toolResult.data && toolResult.data.length > 0) {
-          addDataPanel(
-            toolResult.name,
-            toolResult.data,
-            toolResult.totalCount
-          );
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
 
-          // Auto-navigate to the visual panel for this tool
-          if (!navigated) {
-            const mapping = TOOL_PANEL_MAP[toolResult.name];
-            if (mapping) {
-              // Try to extract device name from result data
-              let deviceName: string | undefined;
-              if (mapping.deviceNameArg) {
-                const firstRow = toolResult.data[0] as Record<string, unknown> | undefined;
-                deviceName = firstRow
-                  ? String(firstRow.deviceName || firstRow.device_name || firstRow.name || "")
-                  : undefined;
-                if (deviceName === "" || deviceName === "undefined") deviceName = undefined;
-              }
-              useNavigationStore.getState().navigateTo(mapping.panel, { deviceName });
-              navigated = true;
-            }
+      // Parse the SSE stream: events are separated by a blank line, fields by
+      // newlines. We ignore ": " comment heartbeats.
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        let sepIndex: number;
+        while ((sepIndex = buffer.indexOf("\n\n")) !== -1) {
+          const rawEvent = buffer.slice(0, sepIndex);
+          buffer = buffer.slice(sepIndex + 2);
+
+          const dataLines = rawEvent
+            .split("\n")
+            .filter((l) => l.startsWith("data:"))
+            .map((l) => l.slice(5).replace(/^ /, ""));
+          if (dataLines.length === 0) continue;
+
+          try {
+            handleEvent(JSON.parse(dataLines.join("\n")) as SSEEvent);
+          } catch {
+            /* ignore malformed event */
           }
         }
       }
 
-      // Add assistant message
-      addAssistantMessage(data.response || data.error || "No response.");
+      if (errorText && !finalText) {
+        failTurn(errorText);
+      } else {
+        endTurn(finalText, toolNames);
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      const { addAssistantMessage } = store.getState();
-      addAssistantMessage(`Connection error: ${msg}`);
+      store.getState().failTurn(`Connection error: ${msg}`);
     } finally {
-      const { setStreaming, setActiveToolCall } = store.getState();
-      setStreaming(false);
-      setActiveToolCall(null);
       streamingRef.current = false;
       useActivityStore.getState().removeActivity("agent-chat");
     }

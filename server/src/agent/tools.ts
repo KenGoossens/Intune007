@@ -1694,6 +1694,167 @@ export const agentTools: ChatCompletionTool[] = [
       },
     },
   },
+  // ─── Configuration Manager (co-management) ────────────────────
+  {
+    type: "function",
+    function: {
+      name: "get_comanagement_summary",
+      description:
+        "Get an overview of Configuration Manager co-management for the tenant. Returns how many devices are co-managed (managed by both ConfigMgr and Intune), the per-workload split showing how many devices route each of the 8 co-management workloads (compliance policies, device configuration, endpoint protection, resource access, client apps, Office apps, Windows Update, inventory) to Intune vs ConfigMgr, a ConfigMgr client-health breakdown, and the co-management eligibility funnel. Use this whenever the user asks about co-management status/adoption, the workload slider, or how far along the ConfigMgr-to-Intune migration is.",
+      parameters: { type: "object", properties: {}, required: [] },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_comanaged_devices",
+      description:
+        "List devices that are co-managed by both Configuration Manager and Intune. Returns device name, OS, compliance state, user, last sync, and the per-device co-management workload assignments and ConfigMgr client health. Use when the user wants to see the actual co-managed device inventory.",
+      parameters: {
+        type: "object",
+        properties: {
+          top: { type: "number", description: "Maximum number of devices to return (default: 1000)" },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_comanagement_eligible_devices",
+      description:
+        "List devices from the co-management eligibility feed, optionally filtered by eligibility status. Status values: 'comanaged', 'eligible', 'eligibleButNotAzureAdJoined', 'needsOsUpdate', 'ineligible', 'scheduledForEnrollment'. Use to find ConfigMgr devices that could be onboarded to co-management or that are blocked by a prerequisite (e.g. needs an OS update or Entra join).",
+      parameters: {
+        type: "object",
+        properties: {
+          status: {
+            type: "string",
+            description:
+              "Optional eligibility status filter: comanaged | eligible | eligibleButNotAzureAdJoined | needsOsUpdate | ineligible | scheduledForEnrollment",
+          },
+          top: { type: "number", description: "Maximum number of devices to return (default: 1000)" },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_configmgr_client_health",
+      description:
+        "List co-managed devices whose Configuration Manager client is unhealthy or blocked (client health state is anything other than healthy, or the client is blocked). Use when the user asks which ConfigMgr clients are broken, unhealthy, or need attention.",
+      parameters: { type: "object", properties: {}, required: [] },
+    },
+  },
+  // ─── Configuration Manager (on-prem AdminService, read-only) ──
+  {
+    type: "function",
+    function: {
+      name: "get_configmgr_connection_status",
+      description:
+        "Check whether the on-prem Configuration Manager AdminService connector is configured and reachable. Returns configured/connected flags, the site code, site name and version when connected, or a clear reason when not. Use this first when the user asks about ConfigMgr collections, deployments, applications, or 'is Config Manager connected'.",
+      parameters: { type: "object", properties: {}, required: [] },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_configmgr_collections",
+      description:
+        "List Configuration Manager collections (device and user collections) from the on-prem AdminService. Returns collection name, ID, member count, type, and limiting collection. Requires the AdminService connector to be configured. Use when the user asks about ConfigMgr collections or collection membership counts.",
+      parameters: {
+        type: "object",
+        properties: {
+          filter: {
+            type: "string",
+            description:
+              "Optional OData $filter over SMS_Collection (e.g. \"startswith(Name,'All')\" or \"CollectionType eq 2\" for device collections).",
+          },
+          top: { type: "number", description: "Maximum collections to return (default: 100)" },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_configmgr_deployments",
+      description:
+        "List Configuration Manager deployment summaries from the on-prem AdminService. Returns the deployed software name, target collection, intent (Required/Available), feature type (Application, Task Sequence, Software Update, etc.), and success/error/in-progress counts. Requires the AdminService connector to be configured. Use when the user asks about ConfigMgr deployments or deployment status/success rates.",
+      parameters: {
+        type: "object",
+        properties: {
+          filter: {
+            type: "string",
+            description:
+              "Optional OData $filter over SMS_DeploymentSummary (e.g. \"NumberErrors gt 0\" for failing deployments).",
+          },
+          top: { type: "number", description: "Maximum deployments to return (default: 100)" },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_configmgr_applications",
+      description:
+        "List Configuration Manager applications (latest revision) from the on-prem AdminService. Returns app name, publisher, version, number of deployments, install count, and whether it is deployed. Requires the AdminService connector to be configured. Use when the user asks about ConfigMgr applications or app catalog.",
+      parameters: {
+        type: "object",
+        properties: {
+          nameContains: {
+            type: "string",
+            description: "Optional case-sensitive substring to filter application display names.",
+          },
+          top: { type: "number", description: "Maximum applications to return (default: 100)" },
+        },
+        required: [],
+      },
+    },
+  },
+  // ─── Configuration Manager write actions (confirmation-gated) ─
+  {
+    type: "function",
+    function: {
+      name: "trigger_configmgr_client_action",
+      description:
+        "DESTRUCTIVE — Trigger an action on the Configuration Manager client of a co-managed device via Graph (co-management / tenant attach). Actions: 'refreshMachinePolicy', 'refreshUserPolicy', 'wakeUpClient', 'appEvaluation', 'quickScan', 'fullScan', 'windowsDefenderUpdateSignatures'. Use for requests like 'refresh ConfigMgr machine policy on <device>' or 'run a ConfigMgr Defender quick scan'. Requires a confirmation token and the DeviceManagementManagedDevices.PrivilegedOperations.All permission.",
+      parameters: {
+        type: "object",
+        properties: {
+          deviceId: { type: "string", description: "The Intune managed device ID (GUID) of the co-managed device." },
+          action: {
+            type: "string",
+            description:
+              "One of: refreshMachinePolicy, refreshUserPolicy, wakeUpClient, appEvaluation, quickScan, fullScan, windowsDefenderUpdateSignatures",
+          },
+        },
+        required: ["deviceId", "action"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "run_cmpivot_query",
+      description:
+        "DESTRUCTIVE — Run a real-time CMPivot query against a single device through the ConfigMgr AdminService and return the results. CMPivot uses a KQL-like syntax (e.g. 'OS | project Caption, Version', 'Service | where Name == \"wuauserv\"', 'InstalledSoftware | summarize count() by Publisher'). Requires the AdminService connector to be connected and a confirmation token. Provide either a ConfigMgr resourceId or a deviceName.",
+      parameters: {
+        type: "object",
+        properties: {
+          deviceName: { type: "string", description: "Device name to run the query on (resolved to a ConfigMgr ResourceID)." },
+          resourceId: { type: "number", description: "ConfigMgr ResourceID of the target device (alternative to deviceName)." },
+          query: { type: "string", description: "The CMPivot query to run (KQL-like syntax)." },
+        },
+        required: ["query"],
+      },
+    },
+  },
 ];
 
 // Inject confirmationToken into all destructive tool definitions
