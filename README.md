@@ -187,7 +187,6 @@ Add these **Application** permissions and grant admin consent:
 | `DeviceManagementApps.ReadWrite.All` | Application | Mobile apps, app icons, assignments, install status |
 | `DeviceManagementServiceConfig.ReadWrite.All` | Application | Autopilot devices, profiles, hardware hash import, enrollment |
 | `DeviceManagementRBAC.Read.All` | Application | Role-based access control |
-| `Directory.Read.All` | Application | Users, directory objects |
 | `Device.Read.All` | Application | Azure AD device objects (Autopilot group assignment) |
 | `Group.ReadWrite.All` | Application | Create groups, list groups |
 | `GroupMember.ReadWrite.All` | Application | Add/remove group members |
