@@ -1,6 +1,6 @@
 # Intune007 — License to Manage!
 
-**AI-powered Microsoft Intune management platform** with a conversational agent, 73 tools, 31 interactive UI panels, RAG-powered documentation search, 24/7 CVE vulnerability monitoring, OWASP-hardened security with destructive action confirmation gates, and full Microsoft Graph API integration.
+**AI-powered Microsoft Intune management platform** with a conversational agent, 90 tools, 25 interactive UI panels, ConfigMgr co-management, a Delivery Optimization simulator, RAG-powered documentation search, 24/7 CVE vulnerability monitoring, OWASP-hardened security with destructive action confirmation gates, and full Microsoft Graph API integration.
 
 ---
 
@@ -34,11 +34,14 @@
 Intune007 is a full-stack application that connects to Microsoft Intune via the Microsoft Graph API. IT administrators interact through either a **conversational AI agent** (right-docked chat panel) or **31 dedicated dashboard panels** — all fully interactive and interconnected. The agent is powered by comprehensive Intune domain knowledge and RAG-based documentation search from learn.microsoft.com.
 
 **Key stats:**
-- 73 agent tools (device management, compliance, apps, security, Autopilot, remediation, CVE monitoring)
-- 31 UI panels with cross-panel navigation, drill-down, and auto-execution
-- 28 API routes
-- 8 SQLite databases (analytics, history, memory, tasks, learning, baselines, docs, cve)
-- 126 TypeScript source files
+- 90 agent tools (device management, compliance, apps, security, Autopilot, remediation, CVE monitoring, ConfigMgr co-management)
+- 25 UI panels with cross-panel navigation, drill-down, and auto-execution
+- 31 API routes
+- 12 SQLite databases (analytics, baselines, configmgr, cve, devices, docs, history, learning, memory, simulations, tasks, tenants)
+- 153 TypeScript source files
+- ConfigMgr co-management: hybrid device visibility, collections, deployments, client actions, CMPivot
+- Delivery Optimization simulator: model bandwidth/peer-caching impact before rolling out content policies
+- AI chat follow-up suggestions: contextual next-question chips after each agent response
 - 24/7 CVE vulnerability monitoring with AI auto-remediation and admin approval workflow
 - RAG engine indexing 45+ Microsoft Learn documentation pages
 - OWASP-hardened security (rate limiting, input validation, OData injection prevention, prompt injection defense, destructive action confirmation gate, structured audit logging)
@@ -58,18 +61,19 @@ Intune007 is a full-stack application that connects to Microsoft Intune via the 
 │  Tailwind    │◀────│  │  Agent   │  │  Alert    │  │   Task      │  │
 │  Zustand     │     │  │  Loop    │  │ Scheduler │  │  Scheduler  │  │     ┌───────────────────┐
 │              │     │  └────┬─────┘  └───────────┘  └─────────────┘  │────▶│  Azure OpenAI     │
-│  29 Panels   │     │       │                                         │     └───────────────────┘
+│  25 Panels   │     │       │                                         │     └───────────────────┘
 │  + Agent Chat│     │  ┌────▼─────┐  ┌───────────┐  ┌─────────────┐  │
-│              │     │  │ 68 Tools │  │  SQLite   │  │  Learning   │  │     ┌───────────────────┐
-│              │     │  └──────────┘  │  (6 DBs)  │  │  Engine     │  │     │  SQLite (local)   │
-└──────────────┘     └─────────────────┴───────────┴──┴─────────────┴──┘     │  analytics.db     │
-                                                                             │  history.db       │
-    Azure Function (optional)                                                │  memory.db        │
-    ┌──────────────────────────┐                                             │  tasks.db         │
-    │ Autopilot Hash Ingestion │                                             │  learning.db      │
-    │ POST /api/autopilot/     │                                             │  baselines.db     │
-    │ ingest                   │                                             └───────────────────┘
-    └──────────────────────────┘
+│              │     │  │ 90 Tools │  │  SQLite   │  │  Learning   │  │     ┌───────────────────┐
+│              │     │  └──────────┘  │  (12 DBs) │  │  Engine     │  │     │  SQLite (local)   │
+└──────────────┘     └─────────────────┴───────────┴──┴─────────────┴──┘     │  12 DBs: analytics,│
+                                                                             │  baselines,       │
+    Azure Function (optional)                                                │  configmgr, cve,  │
+    ┌──────────────────────────┐                                             │  devices, docs,   │
+    │ Autopilot Hash Ingestion │                                             │  history, learning,│
+    │ POST /api/autopilot/     │                                             │  memory,          │
+    │ ingest                   │                                             │  simulations,     │
+    └──────────────────────────┘                                             │  tasks, tenants   │
+                                                                             └───────────────────┘
 ```
 
 | Layer | Stack |
@@ -77,8 +81,8 @@ Intune007 is a full-stack application that connects to Microsoft Intune via the 
 | **Client** | React 18, Vite, Tailwind CSS, Zustand (with localStorage persistence) |
 | **Server** | Express, TypeScript (tsx watch), Azure OpenAI SDK, better-sqlite3 |
 | **Shared** | TypeScript types, tool title mappings (npm workspace) |
-| **AI** | Azure OpenAI (GPT-4o / GPT-5.3-chat), function calling with 73 tools |
-| **Data** | Microsoft Graph API (beta), 8 SQLite databases (auto-created) |
+| **AI** | Azure OpenAI (`gpt-5.3-chat`, or GPT-4o+), function calling with 90 tools |
+| **Data** | Microsoft Graph API (beta), ConfigMgr AdminService, 12 SQLite databases (auto-created) |
 | **Security** | Helmet, express-rate-limit, OData sanitization, prompt injection defense, PowerShell script scanning, destructive action confirmation gate, structured audit logging, server-side tool policy |
 | **RAG** | Documentation search: 45+ learn.microsoft.com pages indexed with Azure OpenAI embeddings |
 | **UX** | Gold 007 branding, golden sparkle particle effects during agent operations |
@@ -124,12 +128,14 @@ Intune007 is a full-stack application that connects to Microsoft Intune via the 
 | **Tasks** | Recurring scheduled agent queries (hourly, daily, weekly). |
 | **Analytics** | Persistent (SQLite-backed) request analytics: token usage, costs, response times, tool usage breakdown, error rates. Survives server restarts. |
 | **CVE Monitor** | 24/7 vulnerability monitoring: fetches CVEs from NVD (NIST) + CISA Known Exploited Vulnerabilities, matches against tenant OS versions and apps, scores relevance (0-100), AI-generates remediation suggestions. **Full auto-remediation with admin approval**: Prepare Auto-Fix → review action → select target group → Approve & Execute → policy/script/update created and assigned via Graph API. Wrong icon feedback with custom URL upload. |
+| **ConfigMgr Co-management** | Connect a Configuration Manager site (via AdminService) alongside Intune. Hybrid device visibility, collections, deployments, application list, remote client actions, and CMPivot queries — all from the same agent/UI. Connection wizard with test-before-save. |
+| **Delivery Optimization Simulator** | Model bandwidth savings and peer-caching behavior for a content-distribution policy before deploying it — per-site/tenant profile, prefill from tenant data, CSV site import, saved simulation runs. |
 
 ### AI Agent
 
 | Capability | Details |
 |---|---|
-| **69 Function-calling tools** | Full Intune management: devices, apps, policies, groups, security, Autopilot, remediation, reporting |
+| **90 Function-calling tools** | Full Intune management: devices, apps, policies, groups, security, Autopilot, remediation, reporting, ConfigMgr co-management, Delivery Optimization simulation |
 | **RAG documentation search** | 45+ learn.microsoft.com pages indexed with embeddings, relevant docs injected into agent context per query |
 | **Deep Intune expertise** | 120+ lines of domain knowledge covering 15 areas: licensing, enrollment, compliance, Autopilot, Conditional Access, troubleshooting, Graph API, error codes |
 | **Auto-panel navigation** | When agent calls a tool with a visual panel (timeline, troubleshooter, device card, etc.), the UI auto-navigates to show both text AND visual output |
@@ -139,6 +145,7 @@ Intune007 is a full-stack application that connects to Microsoft Intune via the 
 | **Cross-panel navigation** | Clicking data elements triggers panel switches with auto-execution |
 | **App management** | Search/fix/refresh app icons (7 sources with PNG conversion via sharp), remove apps (assignments cleared first), bulk rename apps (find-and-replace across all app names), scan for missing icons |
 | **Sync-then-reboot** | Restart command sends a sync first so the device picks up the reboot immediately |
+| **Follow-up suggestions** | After each agent response, contextual next-question chips are suggested so admins can drill deeper without typing |
 
 ---
 
@@ -149,7 +156,7 @@ Intune007 is a full-stack application that connects to Microsoft Intune via the 
 | Node.js | 18.x+ (tested on v24.9.0) |
 | npm | 9.x+ |
 | Azure Subscription | For Azure OpenAI + Entra ID |
-| Azure OpenAI | GPT-4o or newer deployment |
+| Azure OpenAI | GPT-4o or newer deployment (this instance runs `gpt-5.3-chat`) |
 
 ---
 
@@ -158,7 +165,7 @@ Intune007 is a full-stack application that connects to Microsoft Intune via the 
 ### 1. Azure OpenAI Resource
 
 1. Create an Azure OpenAI resource in the Azure portal
-2. Deploy a model (e.g., `gpt-4o` or `gpt-5.3-chat`)
+2. Deploy a model (e.g., `gpt-5.3-chat` — used in this deployment — or `gpt-4o`)
 3. Note the **endpoint**, **API key**, and **deployment name**
 
 ### 2. App Registration (Entra ID)
@@ -281,30 +288,33 @@ Intune007/
 │       │   ├── GenericTable.tsx    # Smart table: auto-detects clickable data types
 │       │   └── ...27 more panels
 │       ├── hooks/useAgentStream.ts
-│       └── stores/                 # Zustand state (chatStore, navigationStore, ...)
+│       ├── lib/followUpSuggestions.ts # Contextual next-question chips after agent replies
+│       └── stores/                 # Zustand state (chatStore, navigationStore, configMgrStore, doSimulatorStore, ...)
 ├── server/                         # Express backend
 │   └── src/
 │       ├── index.ts                # Entry (helmet, rate limiting, CORS, routes)
 │       ├── security.ts             # OWASP security: sanitization, validation, scanning, confirmation gate, audit log
 │       ├── agent/
 │       │   ├── agent.ts            # Agent loop with tool name confidentiality, 3-min timeout
-│       │   ├── executor.ts         # 73 tool dispatcher with confirmation gate + audit logging
+│       │   ├── executor.ts         # 90 tool dispatcher with confirmation gate + audit logging
 │       │   ├── tools.ts            # Tool definitions
 │       │   ├── memory.ts           # Persistent agent memory (SQLite)
 │       │   └── learningEngine.ts   # Self-improving learning loop (SQLite)
-│       ├── graph/                  # 18 Microsoft Graph API modules
+│       ├── graph/                  # 19 Microsoft Graph API modules
 │       │   ├── appIcons.ts         # Icon search (7 sources) + sharp PNG conversion
 │       │   ├── appManagement.ts    # Remove, rename, bulk rename apps
-│       │   └── ...16 more modules
+│       │   └── ...17 more modules
 │       ├── autopilot/              # Onboarding, remediation, hash collection
-│       ├── routes/                 # 26 Express API routes
+│       ├── configmgr/              # ConfigMgr AdminService client, co-management, connection store
+│       ├── doSimulator/            # Delivery Optimization simulation engine, tenant analyzer, profile builder
+│       ├── routes/                 # 31 Express API routes
 │       └── ...engines (analytics, alerts, forecast, baselines, troubleshooter, etc.)
 └── shared/                         # Shared TypeScript types + tool title maps
 ```
 
 ---
 
-## Agent Tools Reference (73 tools)
+## Agent Tools Reference (90 tools)
 
 ### Devices (6)
 Managed devices, device details, device card (50+ fields), device timeline, threat summary, risk scores
@@ -357,9 +367,15 @@ Generate report, run troubleshooter
 ### CVE Monitoring (4)
 Get CVE status, get CVE list (filtered), scan for new CVEs, update CVE status (reviewed/remediated/dismissed)
 
+### ConfigMgr Co-management
+Site summary, hybrid device list, co-management eligibility, AdminService health/status, collections, deployments, applications, remote client actions, CMPivot queries, connection management
+
+### Delivery Optimization Simulator
+Run simulation, list/fetch/delete saved runs, prefill from tenant data, per-run profile generation, CSV site import
+
 ---
 
-## API Endpoints (28 routes)
+## API Endpoints (31 routes)
 
 | Method | Path | Description |
 |---|---|---|
@@ -404,6 +420,23 @@ Get CVE status, get CVE list (filtered), scan for new CVEs, update CVE status (r
 | POST | `/api/cve/actions/:id/reject` | Reject remediation action |
 | GET | `/api/cve/actions` | List remediation actions |
 | POST | `/api/app-health/upload-icon-url` | Upload icon from custom URL |
+| GET | `/api/configmgr/summary` | ConfigMgr site summary |
+| GET | `/api/configmgr/devices` | Hybrid (ConfigMgr) device list |
+| GET | `/api/configmgr/eligible` | Co-management eligibility |
+| GET | `/api/configmgr/health` | AdminService connection health |
+| GET/POST/DELETE | `/api/configmgr/connection` | Manage ConfigMgr connection |
+| POST | `/api/configmgr/connection/test` | Test ConfigMgr connection before saving |
+| GET | `/api/configmgr/collections` | ConfigMgr collections |
+| GET | `/api/configmgr/deployments` | ConfigMgr deployments |
+| GET | `/api/configmgr/applications` | ConfigMgr applications |
+| POST | `/api/configmgr/client-action` | Trigger remote client action |
+| POST | `/api/configmgr/cmpivot` | Run a CMPivot query |
+| POST | `/api/do-simulator/run` | Run a Delivery Optimization simulation |
+| GET | `/api/do-simulator` | List saved simulation runs |
+| GET/DELETE | `/api/do-simulator/:id` | Fetch or delete a simulation run |
+| POST | `/api/do-simulator/prefill` | Prefill simulator inputs from tenant data |
+| POST | `/api/do-simulator/:id/profiles` | Generate DO profile for a run |
+| POST | `/api/do-simulator/csv/sites` | Import sites from CSV |
 
 ---
 
