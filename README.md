@@ -645,7 +645,17 @@ All icons are auto-converted to **128×128 PNG** via sharp before uploading to I
 
 ## License
 
-MIT
+**PolyForm Noncommercial License 1.0.0** — see [LICENSE.md](LICENSE.md).
+
+You may use, modify, and share Intune007 for **noncommercial purposes only**:
+personal use, research, education, and noncommercial organizations such as
+charities, schools, and government bodies.
+
+**Commercial use requires a separate commercial license.** If you want to use
+Intune007 in a business, as part of a paid product, or to deliver paid services,
+contact the copyright holder to arrange licensing.
+
+Copyright © 2026 Ken Goossens. All rights reserved.
 
 ---
 
