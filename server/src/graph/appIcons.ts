@@ -105,23 +105,88 @@ export interface IconUploadResult {
 }
 
 /**
- * Try to find a domain for an app based on its name and publisher.
+ * Reduce an app name to a comparison key.
+ *
+ * Display names rarely match the canonical product name: a WinGet import or an
+ * admin may store "Notepad++" as "Notepad plus!" or "Notepad Plus Plus". Symbols
+ * become words, punctuation is dropped, and a run of "plus" collapses to one, so
+ * all three spellings reduce to the same key.
  */
-function resolveDomain(appName: string, publisher?: string): string | null {
-  const nameLower = appName.toLowerCase().trim();
+function canonicalAppKey(value: string): string {
+  const words = value
+    .toLowerCase()
+    .replace(/\+\+/g, " plus ")
+    .replace(/\+/g, " plus ")
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+
+  const collapsed: string[] = [];
+  for (const word of words) {
+    // "notepad plus plus" and "notepad plus" must land on the same key.
+    if (word === "plus" && collapsed[collapsed.length - 1] === "plus") continue;
+    collapsed.push(word);
+  }
+  // Words stay separated: joining them outright lets a short key match across a
+  // word boundary, e.g. "sap" inside "business app".
+  return collapsed.join(" ");
+}
+
+/** True when `key` appears in `candidate` as a whole run of words. */
+function matchesKey(candidate: string, key: string): boolean {
+  if (!candidate || !key) return false;
+  return ` ${candidate} `.includes(` ${key} `);
+}
+
+/**
+ * The product name a WinGet package identifier carries, e.g.
+ * "Notepad++.Notepad++" → "Notepad++". Canonical where a display name is not.
+ */
+function productNameFromPackageId(packageIdentifier?: string): string | null {
+  if (!packageIdentifier) return null;
+  const parts = packageIdentifier.split(".").filter(Boolean);
+  if (parts.length === 0) return null;
+  return parts[parts.length - 1];
+}
+
+/**
+ * Try to find a domain for an app based on its name, publisher and (for WinGet
+ * apps) its package identifier.
+ */
+export function resolveDomain(
+  appName: string,
+  publisher?: string,
+  packageIdentifier?: string
+): string | null {
   const pubLower = (publisher || "").toLowerCase().trim();
 
-  // Try exact app name match
+  // A WinGet package id is canonical, so it is tried before the display name.
+  const candidates = [productNameFromPackageId(packageIdentifier), appName]
+    .filter((v): v is string => Boolean(v))
+    .map(canonicalAppKey)
+    .filter(Boolean);
+
   for (const [key, domain] of Object.entries(APP_DOMAINS)) {
-    if (nameLower.includes(key)) return domain;
+    const keyCanonical = canonicalAppKey(key);
+    if (candidates.some((candidate) => matchesKey(candidate, keyCanonical))) return domain;
   }
 
   // Try publisher match
+  const pubCanonical = canonicalAppKey(pubLower);
   for (const [key, domain] of Object.entries(PUBLISHER_DOMAINS)) {
-    if (pubLower === key || pubLower.includes(key) || nameLower.includes(key)) return domain;
+    const keyCanonical = canonicalAppKey(key);
+    if (
+      pubLower === key ||
+      matchesKey(pubCanonical, keyCanonical) ||
+      candidates.some((candidate) => matchesKey(candidate, keyCanonical))
+    ) {
+      return domain;
+    }
   }
 
-  // Try to extract a domain from the publisher (e.g. "Goosnet" → "goosnet.com")
+  // Try to extract a domain from the publisher (e.g. "Goosnet" → "goosnet.com").
+  // Skipped when the publisher looks like a person's name rather than a company.
   if (pubLower && !pubLower.includes(" ")) {
     return `${pubLower}.com`;
   }
@@ -190,15 +255,23 @@ async function fetchIconAsBase64(url: string, minBytes: number = 200): Promise<{
 /**
  * Search for an app icon using multiple sources, from highest to lowest quality.
  */
-export async function searchIcon(appName: string, publisher?: string): Promise<IconSearchResult> {
-  const domain = resolveDomain(appName, publisher);
+export async function searchIcon(
+  appName: string,
+  publisher?: string,
+  packageIdentifier?: string
+): Promise<IconSearchResult> {
+  const domain = resolveDomain(appName, publisher, packageIdentifier);
 
   if (!domain) {
     return { found: false, source: "none", domain: undefined };
   }
 
+  // theSVG.org is keyed by product name; a WinGet package id is more reliable
+  // than a display name an admin may have reworded.
+  const slugSource = productNameFromPackageId(packageIdentifier) || appName;
+
   // Build slug for thesvg.org
-  const svgSlug = appName
+  const svgSlug = slugSource
     .toLowerCase()
     .replace(/\s*\d+\.\d+.*$/, "")
     .replace(/\s*\(.*\)$/, "")
@@ -390,11 +463,17 @@ export async function findAndUploadIcon(
 ): Promise<IconUploadResult> {
   // Step 1: Check if app already has an icon (skip if force refresh)
   const client = getGraphClient();
+  let packageIdentifier: string | undefined;
   try {
+    // No $select: packageIdentifier only exists on winGetApp, and selecting a
+    // derived-type property fails for every other app type.
     const app = await client
       .api(`${BETA}/deviceAppManagement/mobileApps/${appId}`)
-      .select("id,largeIcon")
       .get();
+
+    if (typeof app.packageIdentifier === "string") {
+      packageIdentifier = app.packageIdentifier;
+    }
 
     if (!force && app.largeIcon?.value && app.largeIcon.value.length > 100) {
       return {
@@ -410,14 +489,14 @@ export async function findAndUploadIcon(
   }
 
   // Step 2: Search for an icon
-  const searchResult = await searchIcon(appName, publisher);
+  const searchResult = await searchIcon(appName, publisher, packageIdentifier);
   if (!searchResult.found || !searchResult.base64) {
-    return {
-      appId,
-      appName,
-      success: false,
-      message: `Could not find an icon for "${appName}" (publisher: ${publisher || "unknown"}). Domain resolved: ${searchResult.domain || "none"}.`,
-    };
+    // Distinguish "searched everywhere and found nothing" from "never searched",
+    // which is what happens when no domain resolves.
+    const message = searchResult.domain
+      ? `No icon found for "${appName}" at ${searchResult.domain} — all sources were checked.`
+      : `Could not work out a website for "${appName}" (publisher: ${publisher || "unknown"}), so no icon sources were searched. Use the custom URL option to supply one.`;
+    return { appId, appName, success: false, message };
   }
 
   // Step 3: Upload to Intune
