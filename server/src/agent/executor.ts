@@ -278,8 +278,11 @@ export async function executeTool(
           if (!isCacheWarm()) {
             return { data: [], error: "Device cache is not ready for an exact count. Wait for the initial full sync and retry." };
           }
-          const result = queryDevices({ filter: args.filter, countOnly: true });
-          return { data: [], totalCount: result.totalCount };
+          // Rows come from the local cache, not Graph, so the data panel still
+          // renders. totalCount stays the exact filtered count regardless of how
+          // many rows are returned, and the model payload is bounded upstream.
+          const result = queryDevices({ filter: args.filter, top: args.top });
+          return { data: result.items, totalCount: result.totalCount };
         }
         const result = await getManagedDevices({
           filter: args.filter,
