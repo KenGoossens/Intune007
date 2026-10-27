@@ -657,10 +657,6 @@ contact the copyright holder to arrange licensing.
 
 Copyright © 2026 Ken Goossens. All rights reserved.
 
-> Earlier versions of this README stated "MIT". That statement is superseded for
-> all versions from this commit onward, but cannot be revoked for copies obtained
-> while it was in effect.
-
 ---
 
 Built with ❤️ by **Intune007** — *License to Manage!*

@@ -7,10 +7,6 @@ for noncommercial purposes only.
 **Commercial use requires a separate commercial license.** To obtain one,
 contact the copyright holder.
 
-Note: prior to this notice, the project README stated "MIT". That statement is
-superseded as of this commit for all future versions. It cannot be revoked for
-copies obtained earlier.
-
 ---
 
 # PolyForm Noncommercial License 1.0.0
