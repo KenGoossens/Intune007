@@ -24,13 +24,32 @@ function executor(cache) {
 
 test('managed-device count semantics use exact filtered cache counts, not fetched row counts', async () => {
   let received;
-  const api = executor({ isCacheWarm: () => true, queryDevices(options) { received = options; return { items: [], totalCount: 77 }; } });
+  const api = executor({
+    isCacheWarm: () => true,
+    queryDevices(options) { received = options; return { items: [{ id: 'a' }], totalCount: 77 }; },
+  });
   const result = await api.executeTool('get_managed_devices', JSON.stringify({ countOnly: true, filter: 'id ne null' }));
   assert.equal(result.error, undefined);
+  // The count is the exact filtered cache count, never the number of rows returned.
   assert.equal(result.totalCount, 77);
-  assert.equal(result.data.length, 0);
+  assert.notEqual(result.totalCount, result.data.length);
   assert.equal(received.filter, 'id ne null');
-  assert.equal(received.countOnly, true);
+  // Rows are read from the local cache, so no Graph fetch happens for a count.
+  assert.notEqual(received.countOnly, true);
+});
+
+test('count requests still return cache rows so the data panel renders', async () => {
+  const api = executor({
+    isCacheWarm: () => true,
+    queryDevices() {
+      return { items: [{ id: 'a', deviceName: 'NB-ONE' }, { id: 'b', deviceName: 'NB-TWO' }], totalCount: 2 };
+    },
+  });
+  const result = await api.executeTool('get_managed_devices', '{"countOnly":true}');
+  assert.equal(result.error, undefined);
+  assert.equal(result.totalCount, 2);
+  assert.equal(result.data.length, 2, 'empty data leaves the data panel blank on count questions');
+  assert.deepEqual(result.data.map((d) => d.deviceName), ['NB-ONE', 'NB-TWO']);
 });
 
 test('count requests on cold cache return explicit unavailability rather than a misleading zero or partial count', async () => {
