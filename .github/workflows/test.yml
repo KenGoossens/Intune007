@@ -20,6 +20,10 @@ jobs:
 
       - run: npm ci
 
+      # server imports @intune-agent/shared by its built .d.ts files
+      - name: Build shared workspace
+        run: npm -w shared run build
+
       - name: Typecheck server
         run: npx tsc --noEmit -p server/tsconfig.json
 
