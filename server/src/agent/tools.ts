@@ -1,5 +1,9 @@
 import type { ChatCompletionTool } from "openai/resources/chat/completions.js";
 import { DESTRUCTIVE_TOOLS } from "../security.js";
+import { ASR_RULES, ASR_RULE_MODES } from "../policyBuilder/asrRules.js";
+
+/** Derived from the ASR rule table so the enum can't drift from it. */
+const ASR_RULE_NAMES = ASR_RULES.map((rule) => rule.name);
 
 /**
  * Tool definitions for Azure OpenAI function calling.
@@ -744,20 +748,65 @@ export const agentTools: ChatCompletionTool[] = [
   {
     type: "function",
     function: {
+      name: "create_asr_policy",
+      description:
+        "Create a Microsoft Defender Attack Surface Reduction (ASR) rules policy in Intune. Specify which ASR rules to configure and the enforcement mode for each. Always confirm the rules and modes with the user before creating.",
+      parameters: {
+        type: "object",
+        properties: {
+          displayName: {
+            type: "string",
+            description: "Display name for the ASR policy",
+          },
+          description: {
+            type: "string",
+            description: "Description of the policy",
+          },
+          rules: {
+            type: "array",
+            description: "ASR rules to configure, each with an enforcement mode",
+            items: {
+              type: "object",
+              properties: {
+                rule: {
+                  type: "string",
+                  enum: ASR_RULE_NAMES,
+                  description: "The ASR rule to configure",
+                },
+                mode: {
+                  type: "string",
+                  enum: [...ASR_RULE_MODES],
+                  description:
+                    "Enforcement mode: block (enforce), audit (log only), warn (user can bypass), off (disabled)",
+                },
+              },
+              required: ["rule", "mode"],
+            },
+          },
+        },
+        required: ["displayName", "rules"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "assign_policy",
       description:
-        "Assign a compliance policy or configuration profile to one or more Azure AD groups.",
+        "Assign a compliance policy, configuration profile, or Settings Catalog policy (including ASR policies) to one or more Azure AD groups.",
       parameters: {
         type: "object",
         properties: {
           policyId: {
             type: "string",
-            description: "The ID of the compliance policy or configuration profile",
+            description:
+              "The ID of the compliance policy, configuration profile, or Settings Catalog policy",
           },
           policyType: {
             type: "string",
-            enum: ["compliance", "configuration"],
-            description: "Type of policy being assigned",
+            enum: ["compliance", "configuration", "settingsCatalog"],
+            description:
+              "Type of policy being assigned. Use settingsCatalog for ASR policies.",
           },
           groupIds: {
             type: "string",

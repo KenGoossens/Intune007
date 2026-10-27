@@ -111,7 +111,7 @@ WINDOWS UPDATE MANAGEMENT:
 
 SECURITY & ENDPOINT PROTECTION:
 - Microsoft Defender for Endpoint integration: Device risk levels (low, medium, high, clear) feed into compliance policies.
-- Attack Surface Reduction (ASR) rules: Block Office macros, script execution, credential stealing, etc.
+- Attack Surface Reduction (ASR) rules: Block Office macros, script execution, credential stealing, etc. Create these with the dedicated ASR policy tool (Settings Catalog, all 19 rules, modes: block/audit/warn/off) — never hand-author ASR settings through the generic compliance policy tool. Recommend audit mode first for rules with business-app impact, then block. Assign ASR policies with policy type "settingsCatalog".
 - BitLocker management: Enforce encryption, configure encryption method, recovery key escrow to Azure AD.
 - Microsoft Defender Antivirus: Real-time protection, cloud-delivered protection, PUA protection, exclusions.
 - Firewall management: Domain, private, public profiles — enable/disable, block incoming.

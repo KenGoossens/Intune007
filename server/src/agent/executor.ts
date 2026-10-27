@@ -39,10 +39,16 @@ import {
   createCompliancePolicy,
   assignCompliancePolicy,
   assignConfigurationProfile,
+  createSettingsCatalogPolicy,
+  assignSettingsCatalogPolicy,
   updateConditionalAccessPolicy,
   getPoliciesAssignedToGroup,
   getPoliciesAssignedToDevice,
 } from "../graph/policyManagement.js";
+import {
+  buildAsrPolicyBody,
+  type AsrRuleSelection,
+} from "../policyBuilder/asrRules.js";
 import {
   getUpdateRings,
   getUpdateComplianceSummary,
@@ -594,6 +600,22 @@ export async function executeTool(
         return { data: [result], totalCount: 1 };
       }
 
+      case "create_asr_policy": {
+        const rules = Array.isArray(args.rules) ? args.rules : [];
+        let body: Record<string, unknown>;
+        try {
+          body = buildAsrPolicyBody(
+            String(args.displayName),
+            String(args.description || ""),
+            rules as AsrRuleSelection[]
+          );
+        } catch (err) {
+          return { data: [], error: err instanceof Error ? err.message : String(err) };
+        }
+        const result = await createSettingsCatalogPolicy(body);
+        return { data: [result], totalCount: 1 };
+      }
+
       case "assign_policy": {
         const groupIds = (args.groupIds as string).split(",").map((g: string) => g.trim());
         // Security: validate all group IDs are proper UUIDs
@@ -604,6 +626,8 @@ export async function executeTool(
         }
         if (args.policyType === "compliance") {
           await assignCompliancePolicy(args.policyId, groupIds);
+        } else if (args.policyType === "settingsCatalog") {
+          await assignSettingsCatalogPolicy(args.policyId, groupIds);
         } else {
           await assignConfigurationProfile(args.policyId, groupIds);
         }
