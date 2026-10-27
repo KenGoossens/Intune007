@@ -168,6 +168,7 @@ export const DESTRUCTIVE_TOOLS = new Set([
   "retire_device",
   "deploy_remediation_script",
   "create_compliance_policy",
+  "create_asr_policy",
   "assign_policy",
   "update_conditional_access_policy",
   "deploy_hash_collector",

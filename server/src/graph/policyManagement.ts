@@ -88,6 +88,44 @@ export async function assignConfigurationProfile(
 }
 
 /**
+ * Create a Settings Catalog policy (configurationPolicies).
+ *
+ * Separate from createConfigurationProfile: Settings Catalog uses a different
+ * endpoint and a structured `settings` array rather than flat @odata.type
+ * properties.
+ */
+export async function createSettingsCatalogPolicy(
+  body: Record<string, unknown>
+): Promise<Record<string, unknown>> {
+  const client = getGraphClient();
+  return client
+    .api(`${BETA_BASE}/deviceManagement/configurationPolicies`)
+    .post(body);
+}
+
+/**
+ * Assign a Settings Catalog policy to one or more groups.
+ */
+export async function assignSettingsCatalogPolicy(
+  policyId: string,
+  groupIds: string[]
+): Promise<void> {
+  const client = getGraphClient();
+  const assignments = groupIds.map((gid) => ({
+    target: {
+      "@odata.type": "#microsoft.graph.groupAssignmentTarget",
+      groupId: gid,
+    },
+  }));
+
+  await client
+    .api(
+      `${BETA_BASE}/deviceManagement/configurationPolicies/${policyId}/assign`
+    )
+    .post({ assignments });
+}
+
+/**
  * Update a Conditional Access policy (e.g., enable/disable).
  */
 export async function updateConditionalAccessPolicy(
