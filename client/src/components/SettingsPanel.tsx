@@ -34,7 +34,9 @@ export default function SettingsPanel() {
   const { panelVisibility, togglePanel, enableAll, disableAll } =
     useSettingsStore();
 
-  const enabledCount = Object.values(panelVisibility).filter(Boolean).length;
+  const enabledCount = PANEL_INFO.filter(
+    (panel) => panelVisibility[panel.id] !== false
+  ).length;
   const totalCount = PANEL_INFO.length;
 
   return (

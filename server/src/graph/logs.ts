@@ -53,6 +53,8 @@ export async function getAuditEvents(options?: {
     {
       filter: options?.filter,
       top: options?.top,
+      // The shared helper treats top as page size; cap the collection too.
+      maxItems: options?.top ?? 50,
       orderby: "activityDateTime desc",
       select: [
         "id",
@@ -78,27 +80,47 @@ export async function getSignInLogs(options?: {
   top?: number;
 }): Promise<{ items: SignInLogInfo[]; totalCount: number }> {
   const client = getGraphClient();
-  return fetchWithPagination<SignInLogInfo>(
-    client,
-    "/auditLogs/signIns",
-    {
-      filter: options?.filter,
-      select: [
-        "id",
-        "userDisplayName",
-        "userPrincipalName",
-        "appDisplayName",
-        "ipAddress",
-        "clientAppUsed",
-        "status",
-        "createdDateTime",
-        "location",
-        "deviceDetail",
-      ].join(","),
-      top: options?.top,
-      orderby: "createdDateTime desc",
-    }
-  );
+  // Microsoft recommends a time range to avoid signIns query timeouts.
+  // Default to the last seven days; explicit historical queries remain intact.
+  const end = new Date();
+  const start = new Date(end.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const timeRange = `createdDateTime ge ${start.toISOString()} and createdDateTime le ${end.toISOString()}`;
+  const filter = options?.filter || timeRange;
+  const limit = options?.top ?? 50;
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error("Sign-in logs request timed out after 15 seconds. Try a narrower createdDateTime filter."));
+      controller.abort();
+    }, 15_000);
+  });
+
+  try {
+    // Bound the whole operation, including auth/retry middleware and all pages.
+    // A fetch signal alone does not bound a stalled token acquisition.
+    return await Promise.race([
+      (async () => {
+        const items: SignInLogInfo[] = [];
+        // signIns already returns newest first. Only top/filter/skiptoken are
+        // documented query parameters; avoid adding select or orderby here.
+        let request = client.api("/auditLogs/signIns").filter(filter).top(limit);
+        let totalCount: number | undefined;
+        while (items.length < limit) {
+          const response = await request.options({ signal: controller.signal }).get();
+          if (controller.signal.aborted) throw new Error("Sign-in logs request aborted.");
+          items.push(...(response.value ?? []));
+          totalCount ??= response["@odata.count"];
+          if (!response["@odata.nextLink"] || items.length >= limit) break;
+          request = client.api(response["@odata.nextLink"]);
+        }
+        return { items: items.slice(0, limit), totalCount: totalCount ?? items.length };
+      })(),
+      deadline,
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /**
