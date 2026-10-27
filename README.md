@@ -1,6 +1,6 @@
 # Intune007 — License to Manage!
 
-**AI-powered Microsoft Intune management platform** with a conversational agent, 90 tools, 25 interactive UI panels, ConfigMgr co-management, a Delivery Optimization simulator, RAG-powered documentation search, 24/7 CVE vulnerability monitoring, OWASP-hardened security with destructive action confirmation gates, and full Microsoft Graph API integration.
+**AI-powered Microsoft Intune management platform** with a conversational agent, 95 tools, 25 interactive UI panels, ConfigMgr co-management, a Delivery Optimization simulator, RAG-powered documentation search, 24/7 CVE vulnerability monitoring, OWASP-hardened security with destructive action confirmation gates, and full Microsoft Graph API integration.
 
 ---
 
@@ -34,7 +34,7 @@
 Intune007 is a full-stack application that connects to Microsoft Intune via the Microsoft Graph API. IT administrators interact through either a **conversational AI agent** (right-docked chat panel) or **31 dedicated dashboard panels** — all fully interactive and interconnected. The agent is powered by comprehensive Intune domain knowledge and RAG-based documentation search from learn.microsoft.com.
 
 **Key stats:**
-- 90 agent tools (device management, compliance, apps, security, Autopilot, remediation, CVE monitoring, ConfigMgr co-management)
+- 95 agent tools (device management, compliance, apps, security, Autopilot, remediation, CVE monitoring, ASR policies, ConfigMgr co-management and site operations)
 - 25 UI panels with cross-panel navigation, drill-down, and auto-execution
 - 31 API routes
 - 12 SQLite databases (analytics, baselines, configmgr, cve, devices, docs, history, learning, memory, simulations, tasks, tenants)
@@ -63,7 +63,7 @@ Intune007 is a full-stack application that connects to Microsoft Intune via the 
 │              │     │  └────┬─────┘  └───────────┘  └─────────────┘  │────▶│  Azure OpenAI     │
 │  25 Panels   │     │       │                                         │     └───────────────────┘
 │  + Agent Chat│     │  ┌────▼─────┐  ┌───────────┐  ┌─────────────┐  │
-│              │     │  │ 90 Tools │  │  SQLite   │  │  Learning   │  │     ┌───────────────────┐
+│              │     │  │ 95 Tools │  │  SQLite   │  │  Learning   │  │     ┌───────────────────┐
 │              │     │  └──────────┘  │  (12 DBs) │  │  Engine     │  │     │  SQLite (local)   │
 └──────────────┘     └─────────────────┴───────────┴──┴─────────────┴──┘     │  12 DBs: analytics,│
                                                                              │  baselines,       │
@@ -81,7 +81,7 @@ Intune007 is a full-stack application that connects to Microsoft Intune via the 
 | **Client** | React 18, Vite, Tailwind CSS, Zustand (with localStorage persistence) |
 | **Server** | Express, TypeScript (tsx watch), Azure OpenAI SDK, better-sqlite3 |
 | **Shared** | TypeScript types, tool title mappings (npm workspace) |
-| **AI** | Azure OpenAI (`gpt-5.3-chat`, or GPT-4o+), function calling with 90 tools |
+| **AI** | Azure OpenAI (`gpt-5.3-chat`, or GPT-4o+), function calling with 95 tools |
 | **Data** | Microsoft Graph API (beta), ConfigMgr AdminService, 12 SQLite databases (auto-created) |
 | **Security** | Helmet, express-rate-limit, OData sanitization, prompt injection defense, PowerShell script scanning, destructive action confirmation gate, structured audit logging, server-side tool policy |
 | **RAG** | Documentation search: 45+ learn.microsoft.com pages indexed with Azure OpenAI embeddings |
@@ -135,7 +135,7 @@ Intune007 is a full-stack application that connects to Microsoft Intune via the 
 
 | Capability | Details |
 |---|---|
-| **90 Function-calling tools** | Full Intune management: devices, apps, policies, groups, security, Autopilot, remediation, reporting, ConfigMgr co-management, Delivery Optimization simulation |
+| **95 Function-calling tools** | Full Intune management: devices, apps, policies, groups, security, Autopilot, remediation, reporting, ConfigMgr co-management, Delivery Optimization simulation |
 | **RAG documentation search** | 45+ learn.microsoft.com pages indexed with embeddings, relevant docs injected into agent context per query |
 | **Deep Intune expertise** | 120+ lines of domain knowledge covering 15 areas: licensing, enrollment, compliance, Autopilot, Conditional Access, troubleshooting, Graph API, error codes |
 | **Auto-panel navigation** | When agent calls a tool with a visual panel (timeline, troubleshooter, device card, etc.), the UI auto-navigates to show both text AND visual output |
@@ -313,7 +313,7 @@ Intune007/
 
 ---
 
-## Agent Tools Reference (90 tools)
+## Agent Tools Reference (95 tools)
 
 ### Devices (6)
 Managed devices, device details, device card (50+ fields), device timeline, threat summary, risk scores
@@ -368,6 +368,9 @@ Get CVE status, get CVE list (filtered), scan for new CVEs, update CVE status (r
 
 ### ConfigMgr Co-management
 Site summary, hybrid device list, co-management eligibility, AdminService health/status, collections, deployments, applications, remote client actions, CMPivot queries, connection management
+
+### ConfigMgr Site Operations (4)
+Device count, collection membership for one or more devices, add a device to a collection as a direct membership rule, prestage a computer by MAC address for OS Deployment. The two write operations require a confirmation token.
 
 ### Delivery Optimization Simulator
 Run simulation, list/fetch/delete saved runs, prefill from tenant data, per-run profile generation, CSV site import

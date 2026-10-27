@@ -104,6 +104,10 @@ import {
   getApplications as getConfigMgrApplications,
   isConfigMgrConfigured,
   runCmPivot,
+  getConfigMgrDeviceCount,
+  getDeviceCollections,
+  addCollectionDirectMember,
+  importMachineEntry,
 } from "../configmgr/adminService.js";
 import { computeSecurityPosture } from "../routes/securityPosture.js";
 import { getAppHealthData } from "../routes/appHealth.js";
@@ -219,6 +223,16 @@ function formatDuration(ms: number): string {
   const hours = Math.floor(minutes / 60);
   const remainMin = minutes % 60;
   return `${hours}h ${remainMin}m`;
+}
+
+function configMgrNotConnected(): ToolResult {
+  return {
+    data: [{
+      configured: false,
+      message: "ConfigMgr AdminService is not connected. Open the Config Manager panel → Site (on-prem) tab → Connect to set it up.",
+    }],
+    totalCount: 0,
+  };
 }
 
 /**
@@ -1169,6 +1183,69 @@ export async function executeTool(
             ? cmpivot.rows
             : [{ status: cmpivot.status, message: cmpivot.status === "timeout" ? "CMPivot timed out waiting for the device to respond." : "Query returned no rows.", operationId: cmpivot.operationId }],
           totalCount: cmpivot.rows.length,
+        };
+      }
+
+      case "get_configmgr_device_count": {
+        if (!isConfigMgrConfigured()) return configMgrNotConnected();
+        const { count, exact } = await getConfigMgrDeviceCount(
+          args.filter ? String(args.filter) : undefined
+        );
+        return {
+          data: [{
+            count,
+            exact,
+            ...(exact ? {} : { note: `At least ${count} devices; the site did not return an exact total.` }),
+          }],
+          totalCount: count,
+        };
+      }
+
+      case "get_configmgr_device_collections": {
+        if (!isConfigMgrConfigured()) return configMgrNotConnected();
+        const names = Array.isArray(args.deviceNames)
+          ? (args.deviceNames as unknown[]).map((n) => String(n))
+          : [String(args.deviceNames ?? "")];
+        const memberships = await getDeviceCollections(names);
+        return { data: memberships, totalCount: memberships.length };
+      }
+
+      case "add_configmgr_collection_member": {
+        if (!isConfigMgrConfigured()) return configMgrNotConnected();
+        const added = await addCollectionDirectMember({
+          collectionId: String(args.collectionId),
+          resourceId: typeof args.resourceId === "number" ? args.resourceId : undefined,
+          deviceName: args.deviceName ? String(args.deviceName) : undefined,
+          ruleName: args.ruleName ? String(args.ruleName) : undefined,
+        });
+        return {
+          data: [{
+            success: true,
+            ...added,
+            message: `Added as a direct member of collection ${added.collectionId}. Collection membership updates after the next evaluation.`,
+          }],
+          totalCount: 1,
+        };
+      }
+
+      case "import_configmgr_machine_entry": {
+        if (!isConfigMgrConfigured()) return configMgrNotConnected();
+        const imported = await importMachineEntry({
+          netbiosName: String(args.netbiosName),
+          macAddress: String(args.macAddress),
+          smBiosGuid: args.smBiosGuid ? String(args.smBiosGuid) : undefined,
+          overwriteExistingRecord: args.overwriteExistingRecord === true,
+          collectionId: args.collectionId ? String(args.collectionId) : undefined,
+        });
+        return {
+          data: [{
+            success: true,
+            ...imported,
+            message: imported.machineExists
+              ? "A matching record already existed and was updated."
+              : "Computer prestaged for OS Deployment.",
+          }],
+          totalCount: 1,
         };
       }
 
