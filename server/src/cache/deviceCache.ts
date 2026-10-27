@@ -171,27 +171,32 @@ export async function fullSync(): Promise<{ deviceCount: number; durationMs: num
 
   while (nextLink) {
     const response = await client.api(nextLink).get();
-    if (response.value) {
-      allDevices.push(...response.value);
+    if (!response || !Array.isArray(response.value) || response.value.some(
+      (device: Record<string, unknown> | null) => !device || typeof device.id !== "string" || !device.id.trim()
+    )) {
+      throw new Error("Invalid managed-device snapshot: expected devices with non-empty IDs");
     }
+    allDevices.push(...response.value);
     nextLink = response["@odata.nextLink"] || null;
     if (allDevices.length % 5000 === 0 && allDevices.length > 0) {
       console.log(`[DeviceCache] Fetched ${allDevices.length} devices...`);
     }
   }
 
-  // Bulk upsert in a transaction
+  // Publish the complete snapshot atomically, removing devices absent from Graph.
+  // Fetching every page first leaves the previous cache intact on network failure.
   const stmt = upsertStmt();
-  const insertMany = getDb().transaction((devices: Record<string, unknown>[]) => {
+  const replaceSnapshot = getDb().transaction((devices: Record<string, unknown>[]) => {
+    getDb().prepare("DELETE FROM devices").run();
     for (const d of devices) {
       stmt.run(deviceToRow(d));
     }
+    const syncedAt = new Date().toISOString();
+    setMeta("lastFullSync", syncedAt);
+    setMeta("lastSync", syncedAt);
+    getDb().prepare("DELETE FROM sync_meta WHERE key = 'deltaLink'").run();
   });
-  insertMany(allDevices);
-
-  // Mark cache as warm immediately — devices are in DB
-  setMeta("lastFullSync", new Date().toISOString());
-  setMeta("lastSync", new Date().toISOString());
+  replaceSnapshot(allDevices);
 
   // Now get delta link for subsequent syncs (non-fatal if this fails)
   try {
@@ -311,6 +316,7 @@ export function queryDevices(options?: {
   filter?: string;
   top?: number;
   select?: string;
+  countOnly?: boolean;
 }): { items: Record<string, unknown>[]; totalCount: number } {
   const database = getDb();
   const top = Math.min(options?.top || 100, 1000);
@@ -326,6 +332,8 @@ export function queryDevices(options?: {
   const countRow = database
     .prepare(`SELECT COUNT(*) as c FROM devices ${whereClause}`)
     .get(...params) as { c: number };
+
+  if (options?.countOnly) return { items: [], totalCount: countRow.c };
 
   // Get rows
   const rows = database
@@ -406,72 +414,83 @@ export function isCacheWarm(): boolean {
 // ─── OData → SQL Translation ────────────────────────────────────
 
 /**
- * Translate common OData $filter patterns to SQL WHERE clauses.
- * Supports: eq, ne, contains, startsWith, and/or.
+ * Parse a deliberately small OData grammar. Only known columns, fixed SQL
+ * operators and bound values reach SQLite; unsupported syntax fails closed.
  */
 function odataToSql(filter: string, params: unknown[]): string {
-  let sql = filter;
-
-  // contains(field,'value') → field LIKE '%value%'
-  sql = sql.replace(
-    /contains\s*\(\s*(\w+)\s*,\s*'([^']*)'\s*\)/gi,
-    (_match, field, value) => {
-      params.push(`%${value}%`);
-      return `${mapField(field)} LIKE ?`;
+  const unsupported = (): never => {
+    throw new Error("Unsupported cache filter. Use known device fields (id, not deviceId), eq/ne with string, boolean or null, contains/startsWith, and/or and parentheses.");
+  };
+  if (filter.length > 500) unsupported();
+  const tokens: string[] = [];
+  const token = /\s*('(?:[^']|'')*'|[A-Za-z_][A-Za-z0-9_]*|[(),])/y;
+  let offset = 0;
+  while (offset < filter.length) {
+    if (!filter.slice(offset).trim()) break;
+    token.lastIndex = offset;
+    const match = token.exec(filter);
+    if (!match) unsupported();
+    tokens.push(match![1]);
+    offset = token.lastIndex;
+  }
+  let position = 0;
+  const peek = () => tokens[position]?.toLowerCase();
+  const take = () => tokens[position++] ?? unsupported();
+  const expect = (value: string) => { if (take().toLowerCase() !== value) unsupported(); };
+  const field = () => {
+    const name = take();
+    if (!DEVICE_SELECT.split(",").includes(name)) unsupported();
+    return `"${name}"`;
+  };
+  const stringValue = () => {
+    const value = take();
+    if (!value.startsWith("'")) unsupported();
+    return value.slice(1, -1).replace(/''/g, "'");
+  };
+  const primary = (): string => {
+    if (peek() === "(") {
+      take();
+      const nested = or();
+      expect(")");
+      return `(${nested})`;
     }
-  );
-
-  // startsWith(field,'value') → field LIKE 'value%'
-  sql = sql.replace(
-    /startsWith\s*\(\s*(\w+)\s*,\s*'([^']*)'\s*\)/gi,
-    (_match, field, value) => {
-      params.push(`${value}%`);
-      return `${mapField(field)} LIKE ?`;
+    if (peek() === "contains" || peek() === "startswith") {
+      const fn = take().toLowerCase();
+      expect("(");
+      const column = field();
+      expect(",");
+      const value = stringValue().replace(/[\\%_]/g, "\\$&");
+      expect(")");
+      params.push(fn === "contains" ? `%${value}%` : `${value}%`);
+      return `${column} LIKE ? ESCAPE '\\'`;
     }
-  );
-
-  // field eq 'value' → field = ?
-  sql = sql.replace(
-    /(\w+)\s+eq\s+'([^']*)'/gi,
-    (_match, field, value) => {
-      params.push(value);
-      return `${mapField(field)} = ?`;
+    const column = field();
+    const op = take().toLowerCase();
+    if (op !== "eq" && op !== "ne") unsupported();
+    if (peek() === "null") {
+      take();
+      return `${column} IS ${op === "ne" ? "NOT " : ""}NULL`;
     }
-  );
-
-  // field ne 'value' → field != ?
-  sql = sql.replace(
-    /(\w+)\s+ne\s+'([^']*)'/gi,
-    (_match, field, value) => {
-      params.push(value);
-      return `${mapField(field)} != ?`;
+    if (peek() === "true" || peek() === "false") {
+      params.push(take().toLowerCase() === "true" ? 1 : 0);
+    } else {
+      params.push(stringValue());
     }
-  );
-
-  // field eq true/false → field = 1/0
-  sql = sql.replace(
-    /(\w+)\s+eq\s+(true|false)/gi,
-    (_match, field, value) => {
-      params.push(value.toLowerCase() === "true" ? 1 : 0);
-      return `${mapField(field)} = ?`;
-    }
-  );
-
-  // and/or → AND/OR
-  sql = sql.replace(/\band\b/gi, "AND").replace(/\bor\b/gi, "OR");
-
+    return `${column} ${op === "eq" ? "=" : "!="} ?`;
+  };
+  const and = (): string => {
+    let sql = primary();
+    while (peek() === "and") { take(); sql += ` AND ${primary()}`; }
+    return sql;
+  };
+  const or = (): string => {
+    let sql = and();
+    while (peek() === "or") { take(); sql += ` OR ${and()}`; }
+    return sql;
+  };
+  const sql = or();
+  if (position !== tokens.length) unsupported();
   return sql;
-}
-
-/**
- * Map OData field names to SQLite column names.
- * Handles boolean fields stored as integers.
- */
-function mapField(field: string): string {
-  // These fields are stored as integers (0/1) in SQLite
-  const boolFields = new Set(["isEncrypted", "autopilotEnrolled"]);
-  if (boolFields.has(field)) return field;
-  return field;
 }
 
 // ─── Background Sync Scheduler ──────────────────────────────────

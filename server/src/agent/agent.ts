@@ -159,6 +159,7 @@ Your capabilities include:
 
 RESPONSE APPROACH:
 - For data queries ("show me devices", "how many apps"), use the appropriate tools.
+- For managed-device count questions, use get_managed_devices with countOnly=true. Do not fetch full device inventories to count them; use the exact filtered totalCount. Use id (not deviceId) in managed-device filters. Never infer fleet-wide statistics from a truncated sample.
 - For knowledge questions ("what is Autopilot", "how does compliance work", "what license do I need"), answer directly from your expertise WITHOUT calling tools.
 - For mixed questions ("are my devices compliant and why is compliance important"), answer the knowledge part directly and use tools for the data part.
 - When the user asks to BUILD, CREATE, or GENERATE a policy (e.g., "build a CIS L1 compliance policy"), ALWAYS use the create_compliance_policy tool to create the actual policy — don't just describe what it should contain in text. The user wants the policy CREATED in Intune, not just explained.
@@ -209,6 +210,37 @@ function createOpenAIClient(): AzureOpenAI {
   });
 }
 
+/** Model-only payload budget; full results still go to the data panel. */
+const MAX_MODEL_TOOL_CHARS = 12_000;
+const DEVICE_SUMMARY_FIELDS = "id,deviceName,operatingSystem,osVersion,complianceState,managementAgent,managedDeviceOwnerType,lastSyncDateTime,userPrincipalName";
+
+function modelToolContent(result: ToolResult & { truncated?: boolean; availableCount?: number }, toolName?: string, select?: string): string {
+  if (result.error) return JSON.stringify({ error: result.error.slice(0, 1000) });
+  const data: unknown[] = [];
+  let fieldsOmitted = false;
+  const fields = (select || DEVICE_SUMMARY_FIELDS).split(",").map(field => field.trim());
+  for (const item of result.data.slice(0, 20)) {
+    let compact = item;
+    if (toolName === "get_managed_devices" && item && typeof item === "object") {
+      const record = item as Record<string, unknown>;
+      compact = Object.fromEntries(fields.filter(field => field in record).map(field => [field, record[field]]));
+      fieldsOmitted ||= Object.keys(record).some(field => !fields.includes(field));
+    }
+    // Reserve space for metadata and never cut JSON mid-string.
+    if (JSON.stringify([...data, compact]).length > MAX_MODEL_TOOL_CHARS - 1000) break;
+    data.push(compact);
+  }
+  const truncated = result.truncated === true || fieldsOmitted || data.length < result.data.length;
+  return JSON.stringify({
+    data,
+    totalCount: Number.isSafeInteger(result.totalCount) && result.totalCount! >= 0 ? result.totalCount : undefined,
+    returnedCount: data.length,
+    availableCount: Number.isSafeInteger(result.availableCount) && result.availableCount! >= 0 ? result.availableCount : result.data.length,
+    truncated,
+    ...(truncated ? { note: "Partial summary, not the complete inventory. Use totalCount for counts, not data.length. Full tool results are in the data panel; narrow the query or select specific fields for more detail." } : {}),
+  });
+}
+
 /**
  * Converts our ChatMessage format to the OpenAI SDK message format.
  */
@@ -220,9 +252,22 @@ function toOpenAIMessages(
     .filter((msg) => msg.role !== "system")
     .map((msg) => {
     if (msg.role === "tool") {
+      let content = msg.content;
+      try {
+        const result = JSON.parse(content);
+        if (result && (Array.isArray(result.data) || typeof result.error === "string")) {
+          content = modelToolContent({ ...result, data: Array.isArray(result.data) ? result.data : [] });
+        } else if (content.length > MAX_MODEL_TOOL_CHARS) {
+          content = JSON.stringify({ error: "Previous oversized tool result omitted. Re-run a narrower query." });
+        }
+      } catch {
+        if (content.length > MAX_MODEL_TOOL_CHARS) {
+          content = JSON.stringify({ error: "Previous oversized tool result omitted. Re-run a narrower query." });
+        }
+      }
       return {
         role: "tool" as const,
-        content: msg.content,
+        content,
         tool_call_id: msg.toolCallId || "",
       } satisfies ChatCompletionToolMessageParam;
     }
@@ -539,12 +584,7 @@ export async function runAgentLoop(
           const toolMessage: ChatCompletionToolMessageParam = {
             role: "tool",
             tool_call_id: toolCall.id,
-            content: result.error
-              ? JSON.stringify({ error: result.error })
-              : JSON.stringify({
-                  data: result.data,
-                  totalCount: result.totalCount,
-                }),
+            content: modelToolContent(result, toolName, typeof parsedArgs.select === "string" ? parsedArgs.select : undefined),
           };
           messages.push(toolMessage);
         }
