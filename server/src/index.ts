@@ -42,6 +42,10 @@ import { startCVEScheduler } from "./cve/scheduler.js";
 
 const app = express();
 
+// Trust only the frontend nginx container, never arbitrary client-supplied XFF.
+// The deployment sets this to the proxy's VLAN address.
+app.set("trust proxy", process.env.TRUSTED_PROXY_IP || false);
+
 // ─── Security Middleware ──────────────────────────────────────
 // Helmet: sets security headers (CSP, X-Frame-Options, HSTS, etc.)
 app.use(helmet({

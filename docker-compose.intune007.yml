@@ -1,0 +1,44 @@
+version: "3.9"
+
+services:
+  intune007-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+    container_name: intune007-server
+    restart: unless-stopped
+    env_file:
+      - ./server/.env
+    environment:
+      TRUSTED_PROXY_IP: "10.0.10.141"
+    volumes:
+      - intune007-data:/app/data
+    networks:
+      dockervlan710:
+        ipv4_address: 10.0.10.140
+
+  intune007-client:
+    build:
+      context: .
+      dockerfile: Dockerfile.client
+    container_name: intune007-client
+    restart: unless-stopped
+    depends_on:
+      - intune007-server
+    networks:
+      dockervlan710:
+        ipv4_address: 10.0.10.141
+
+networks:
+  dockervlan710:
+    driver: macvlan
+    driver_opts:
+      parent: ens19
+    ipam:
+      config:
+        - subnet: "10.0.10.0/24"
+          gateway: "10.0.10.1"
+          ip_range: "10.0.10.128/27"
+
+volumes:
+  intune007-data:

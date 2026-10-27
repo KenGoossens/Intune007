@@ -11,10 +11,14 @@ export const agentTools: ChatCompletionTool[] = [
     function: {
       name: "get_managed_devices",
       description:
-        "List Intune managed devices. Returns device name, OS, compliance state, ownership, last sync time, and user. Use OData filter to narrow results (e.g., filter by OS, compliance state, user).",
+        "List Intune managed devices. For how many/count questions set countOnly=true: returns the exact cached total without device objects (requires initial sync). Use OData filters to narrow results; use id, not deviceId, for the managed-device ID.",
       parameters: {
         type: "object",
         properties: {
+          countOnly: {
+            type: "boolean",
+            description: "Set true for count/how many questions. Return only totalCount for the complete filtered cache, not device rows.",
+          },
           filter: {
             type: "string",
             description:

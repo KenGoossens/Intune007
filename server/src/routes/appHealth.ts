@@ -9,6 +9,16 @@ import { batchGetDetectedApps } from "../graph/batch.js";
 const router = Router();
 const BETA = "https://graph.microsoft.com/beta";
 
+function appPlatformMatchesDevice(appType: string, operatingSystem: string): boolean {
+  const type = appType.toLowerCase();
+  const os = operatingSystem.toLowerCase();
+  if (type.includes("ios") || type.includes("vpp")) return os === "ios" || os === "ipados";
+  if (type.includes("android")) return os === "android";
+  if (type.includes("macos")) return os === "macos";
+  if (type.includes("win32") || type.includes("windows") || type.includes("winget")) return os === "windows";
+  return true; // Unknown or cross-platform app types are not restricted.
+}
+
 let cache: { data: Record<string, unknown>; ts: number } | null = null;
 
 /** Get app health data (used by executor + route). Returns cached data if fresh. */
@@ -21,6 +31,10 @@ export async function getAppHealthData(): Promise<Record<string, unknown>> {
     { select: "id,displayName,publisher", maxItems: 100 }
   );
   const devices = await getManagedDevices({ top: 100 });
+  const deviceOSByName = new Map(devices.items.map((device) => [
+    String((device as unknown as Record<string, unknown>).deviceName || ""),
+    String((device as unknown as Record<string, unknown>).operatingSystem || ""),
+  ]));
 
   const appDeviceDetails = new Map<string, Map<string, string>>();
   let totalDetectedApps = 0;
@@ -63,11 +77,16 @@ export async function getAppHealthData(): Promise<Record<string, unknown>> {
     const appType = String(app["@odata.type"] || "").replace("#microsoft.graph.", "");
     const appNameLower = appName.toLowerCase();
 
-    let matchedDevices: Map<string, string> | undefined = detectedNamesLower.get(appNameLower);
+    const compatibleDevices = (found?: Map<string, string>): Map<string, string> | undefined =>
+      found && new Map(Array.from(found).filter(([deviceName]) =>
+        appPlatformMatchesDevice(appType, deviceOSByName.get(deviceName) || "")
+      ));
+    let matchedDevices = compatibleDevices(detectedNamesLower.get(appNameLower));
     if (!matchedDevices || matchedDevices.size === 0) {
       for (const [detectedName, deviceMap] of detectedNamesLower) {
         if (detectedName.includes(appNameLower) || appNameLower.includes(detectedName)) {
-          if (!matchedDevices || deviceMap.size > matchedDevices.size) matchedDevices = deviceMap;
+          const candidate = compatibleDevices(deviceMap);
+          if (candidate && (!matchedDevices || candidate.size > matchedDevices.size)) matchedDevices = candidate;
         }
       }
     }

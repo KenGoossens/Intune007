@@ -28,7 +28,8 @@ const MAX_BATCH_SIZE = 20; // Graph API limit
  * Automatically splits into chunks of 20 if needed.
  */
 export async function executeBatch(
-  requests: BatchRequest[]
+  requests: BatchRequest[],
+  version: "v1.0" | "beta" = "v1.0"
 ): Promise<BatchResponse[]> {
   if (requests.length === 0) return [];
 
@@ -52,6 +53,7 @@ export async function executeBatch(
     try {
       const response = await client
         .api("/$batch")
+        .version(version)
         .post(batchBody);
 
       if (response.responses) {
@@ -80,7 +82,8 @@ export async function executeBatch(
 
 /**
  * Batch-fetch detected apps for multiple devices at once.
- * Instead of N individual requests, uses N/20 batch calls.
+ * Uses beta for the detectedApps navigation property, with up to 20 devices per batch.
+ * Follows additional pages and rejects failed/incomplete inventories rather than reporting zero.
  */
 export async function batchGetDetectedApps(
   deviceIds: string[]
@@ -94,15 +97,36 @@ export async function batchGetDetectedApps(
     url: `/deviceManagement/managedDevices/${id}/detectedApps?$select=displayName,version&$top=200`,
   }));
 
-  const responses = await executeBatch(requests);
+  const responses = await executeBatch(requests, "beta");
 
-  for (const resp of responses) {
-    if (resp.status === 200 && resp.body) {
-      const body = resp.body as { value?: Array<{ displayName: string; version: string }> };
-      result.set(resp.id, body.value || []);
-    } else {
-      result.set(resp.id, []);
+  const responsesById = new Map(responses.map((resp) => [resp.id, resp]));
+  for (const id of deviceIds) {
+    const resp = responsesById.get(id);
+    // Fail closed: callers must not mistake incomplete inventory for a true zero.
+    if (!resp || resp.status !== 200) {
+      throw new Error(`Detected apps request failed for device ${id} (${resp ? `HTTP ${resp.status}` : "missing batch response"}).`);
     }
+    type Page = {
+      value?: Array<{ displayName: string; version: string }>;
+      "@odata.nextLink"?: string;
+    };
+    let body = resp.body as Page | null;
+    const detected: Array<{ displayName: string; version: string }> = [];
+    const seenLinks = new Set<string>();
+    while (true) {
+      if (!body || !Array.isArray(body.value)) {
+        throw new Error(`Invalid detected apps response for device ${id}.`);
+      }
+      detected.push(...body.value);
+      const nextLink = body["@odata.nextLink"];
+      if (nextLink === undefined || nextLink === null) break;
+      if (typeof nextLink !== "string" || !nextLink || seenLinks.has(nextLink)) {
+        throw new Error(`Invalid detected apps pagination for device ${id}.`);
+      }
+      seenLinks.add(nextLink);
+      body = await getGraphClient().api(nextLink).version("beta").get() as Page;
+    }
+    result.set(id, detected);
   }
 
   return result;

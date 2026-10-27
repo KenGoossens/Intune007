@@ -1,3 +1,4 @@
+import { isCacheWarm, queryDevices } from "../cache/deviceCache.js";
 import { getManagedDevices, getDeviceDetails } from "../graph/devices.js";
 import {
   syncDevice,
@@ -267,6 +268,13 @@ export async function executeTool(
 
     switch (toolName) {
       case "get_managed_devices": {
+        if (args.countOnly === true) {
+          if (!isCacheWarm()) {
+            return { data: [], error: "Device cache is not ready for an exact count. Wait for the initial full sync and retry." };
+          }
+          const result = queryDevices({ filter: args.filter, countOnly: true });
+          return { data: [], totalCount: result.totalCount };
+        }
         const result = await getManagedDevices({
           filter: args.filter,
           top: args.top,
