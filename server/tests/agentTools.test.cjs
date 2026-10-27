@@ -41,7 +41,13 @@ test('count requests on cold cache return explicit unavailability rather than a 
 });
 
 test('managed-device tool advertises countOnly for count questions', () => {
-  const { agentTools } = load('agent/tools.ts', { '../security.js': { DESTRUCTIVE_TOOLS: new Set() } });
+  const { agentTools } = load('agent/tools.ts', {
+    '../security.js': { DESTRUCTIVE_TOOLS: new Set() },
+    '../policyBuilder/asrRules.js': {
+      ASR_RULES: [{ name: 'block_office_child_processes' }],
+      ASR_RULE_MODES: ['off', 'block', 'audit', 'warn'],
+    },
+  });
   const tool = agentTools.find(tool => tool.function.name === 'get_managed_devices');
   assert.equal(tool.function.parameters.properties.countOnly.type, 'boolean');
   assert.match(tool.function.description, /countOnly/);
