@@ -11,7 +11,7 @@ import type {
 } from "@intune-agent/shared";
 
 /**
- * Read-only connector for the Configuration Manager AdminService REST API.
+ * Connector for the Configuration Manager AdminService REST API.
  *
  * Auth is pluggable via CONFIGMGR_AUTH_MODE:
  *   - "azuread" (default): request an Entra ID token for the CMG server app and
@@ -21,7 +21,8 @@ import type {
  *   - "none": no Authorization header (rare — anonymous intranet endpoints).
  *   - "windows": not supported in this build (NTLM/Kerberos from Node).
  *
- * Every call is a GET — this connector never mutates ConfigMgr.
+ * Reads use the OData routes. Writes invoke WMI methods over the `wmi` route
+ * and are gated behind the agent's destructive-action confirmation flow.
  */
 
 const DEFAULT_TOP = 100;
@@ -496,5 +497,286 @@ export async function runCmPivot(
     }
   }
   return { operationId, status: "timeout", rows: [], resourceId };
+}
+
+// ─── WMI method invocation ───────────────────────────────────────
+//
+// The AdminService wmi route accepts POST to over 700 classes. A static
+// method is addressed as `wmi/<Class>.<Method>`; an instance method as
+// `wmi/<Class>('<Key>')/AdminService.<Method>`. These two builders are the
+// only place those shapes are expressed, so a site that disagrees can be
+// accommodated without touching the callers.
+
+export function wmiStaticMethodPath(className: string, method: string): string {
+  return `wmi/${className}.${method}`;
+}
+
+export function wmiInstanceMethodPath(
+  className: string,
+  key: string,
+  method: string
+): string {
+  return `wmi/${className}('${String(key).replace(/'/g, "''")}')/AdminService.${method}`;
+}
+
+/** OData discriminator for the derived direct-membership rule type. */
+export const SMS_COLLECTION_RULE_DIRECT_TYPE = "#AdminService.SMS_CollectionRuleDirect";
+
+async function adminPost<T = Record<string, unknown>>(
+  cm: EffectiveConfigMgrConfig,
+  path: string,
+  body: unknown
+): Promise<T> {
+  const url = `${cm.adminServiceUrl.replace(/\/+$/, "")}/${path}`;
+  const json = await httpsJsonRequest(
+    "POST",
+    url,
+    await getAuthHeaders(cm),
+    cm.allowInsecureTls,
+    body
+  );
+  return json as unknown as T;
+}
+
+/** Resolve a ConfigMgr device name to its ResourceID. */
+async function resolveResourceId(
+  cm: EffectiveConfigMgrConfig,
+  deviceName: string
+): Promise<number | null> {
+  const safe = deviceName.replace(/'/g, "''");
+  const found = await adminGet<Record<string, unknown>>(cm, "wmi/SMS_R_System", {
+    filter: `Name eq '${safe}'`,
+    select: "ResourceID,Name",
+    top: 1,
+  });
+  if (found.length === 0) return null;
+  const id = num(found[0].ResourceID);
+  return id > 0 ? id : null;
+}
+
+function requireConnected(): EffectiveConfigMgrConfig {
+  const cm = resolveConfig();
+  if (!cm.adminServiceUrl) throw new Error("The ConfigMgr AdminService is not connected.");
+  return cm;
+}
+
+// ─── Device inventory ────────────────────────────────────────────
+
+/**
+ * Count devices known to Configuration Manager.
+ *
+ * `exact` is false when the site did not honour $count and the fallback hit
+ * the page cap, so callers never present a capped page as a fleet total.
+ */
+export async function getConfigMgrDeviceCount(
+  filter?: string
+): Promise<{ count: number; exact: boolean }> {
+  const cm = requireConnected();
+  const base = cm.adminServiceUrl.replace(/\/+$/, "");
+
+  const qs = ["$count=true", "$top=1"];
+  if (filter) qs.push(`$filter=${encodeURIComponent(filter)}`);
+  try {
+    const json = await httpsJsonRequest(
+      "GET",
+      `${base}/wmi/SMS_R_System?${qs.join("&")}`,
+      await getAuthHeaders(cm),
+      cm.allowInsecureTls
+    );
+    const raw = json["@odata.count"];
+    if (raw !== undefined) return { count: num(raw), exact: true };
+  } catch {
+    // Older sites reject $count — fall back to counting a capped page.
+  }
+
+  const rows = await adminGet<Record<string, unknown>>(cm, "wmi/SMS_R_System", {
+    filter,
+    select: "ResourceID",
+    top: MAX_TOP,
+  });
+  return { count: rows.length, exact: rows.length < MAX_TOP };
+}
+
+// ─── Collection membership ───────────────────────────────────────
+
+export interface DeviceCollectionMembership {
+  deviceName: string;
+  resourceId: number | null;
+  found: boolean;
+  collections: { collectionId: string; name: string }[];
+  error?: string;
+}
+
+/**
+ * Collections each named device belongs to. Unresolved names are returned as
+ * explicit misses rather than dropped, so asking about three devices always
+ * accounts for three devices.
+ */
+export async function getDeviceCollections(
+  deviceNames: string[]
+): Promise<DeviceCollectionMembership[]> {
+  const cm = requireConnected();
+  const base = cm.adminServiceUrl.replace(/\/+$/, "");
+  const names = deviceNames.map((n) => String(n || "").trim()).filter(Boolean);
+  if (names.length === 0) throw new Error("At least one device name is required.");
+
+  const results: DeviceCollectionMembership[] = [];
+  for (const deviceName of names) {
+    try {
+      const resourceId = await resolveResourceId(cm, deviceName);
+      if (!resourceId) {
+        results.push({ deviceName, resourceId: null, found: false, collections: [] });
+        continue;
+      }
+      const url =
+        `${base}/v1.0/Device(${resourceId})/ResourceCollectionMembership` +
+        `?$expand=Collection&$select=Collection`;
+      const json = await httpsJsonRequest(
+        "GET",
+        url,
+        await getAuthHeaders(cm),
+        cm.allowInsecureTls
+      );
+      const rows = Array.isArray(json.value) ? (json.value as Record<string, unknown>[]) : [];
+      const collections = rows
+        .map((r) => (r.Collection ?? r) as Record<string, unknown>)
+        .filter((c) => c && (c.CollectionID || c.Name))
+        .map((c) => ({
+          collectionId: String(c.CollectionID ?? ""),
+          name: String(c.Name ?? c.CollectionName ?? ""),
+        }));
+      results.push({ deviceName, resourceId, found: true, collections });
+    } catch (err: unknown) {
+      results.push({
+        deviceName,
+        resourceId: null,
+        found: false,
+        collections: [],
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+  return results;
+}
+
+// ─── Direct membership (write) ───────────────────────────────────
+
+/**
+ * Add a device to a collection as a direct membership rule.
+ * Returns the ConfigMgr SInt32 return value; 0 means success.
+ */
+export async function addCollectionDirectMember(input: {
+  collectionId: string;
+  resourceId?: number;
+  deviceName?: string;
+  ruleName?: string;
+}): Promise<{
+  collectionId: string;
+  resourceId: number;
+  ruleName: string;
+  returnValue: number;
+}> {
+  const cm = requireConnected();
+  const collectionId = String(input.collectionId || "").trim();
+  if (!collectionId) throw new Error("A collectionId is required.");
+
+  let resourceId = input.resourceId;
+  let ruleName = input.ruleName;
+  if (!resourceId) {
+    if (!input.deviceName) throw new Error("A resourceId or deviceName is required.");
+    const resolved = await resolveResourceId(cm, input.deviceName);
+    if (!resolved) {
+      throw new Error(
+        `Device '${input.deviceName}' was not found in Configuration Manager.`
+      );
+    }
+    resourceId = resolved;
+    ruleName = ruleName || input.deviceName;
+  }
+  if (!ruleName) ruleName = String(resourceId);
+
+  const response = await adminPost<Record<string, unknown>>(
+    cm,
+    wmiInstanceMethodPath("SMS_Collection", collectionId, "AddMembershipRule"),
+    {
+      collectionRule: {
+        "@odata.type": SMS_COLLECTION_RULE_DIRECT_TYPE,
+        ResourceClassName: "SMS_R_System",
+        ResourceID: resourceId,
+        RuleName: ruleName,
+      },
+    }
+  );
+
+  // AddMembershipRule returns SInt32: 0 success, non-zero is a ConfigMgr error.
+  const returnValue = num(response.ReturnValue ?? response.value ?? 0);
+  if (returnValue !== 0) {
+    throw new Error(
+      `ConfigMgr rejected the membership rule (return value ${returnValue}).`
+    );
+  }
+  return { collectionId, resourceId, ruleName, returnValue };
+}
+
+// ─── OSD prestaging (write) ──────────────────────────────────────
+
+/** ImportMachineEntry requires colon-separated MAC, e.g. 00:11:22:33:44:55. */
+const MAC_COLON_FORMAT = /^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/;
+
+/**
+ * Prestage a computer for OS Deployment.
+ *
+ * A MAC in any other format is accepted by ConfigMgr but silently prevents the
+ * client from receiving policy, so it is rejected here before the call is made.
+ */
+export async function importMachineEntry(input: {
+  netbiosName: string;
+  macAddress: string;
+  smBiosGuid?: string;
+  overwriteExistingRecord?: boolean;
+  collectionId?: string;
+}): Promise<{
+  netbiosName: string;
+  macAddress: string;
+  machineExists: boolean;
+  resourceId: number;
+  smsUniqueIdentifier: string;
+}> {
+  const cm = requireConnected();
+  const netbiosName = String(input.netbiosName || "").trim();
+  const macAddress = String(input.macAddress || "").trim();
+  if (!netbiosName) throw new Error("A netbiosName is required.");
+  if (!MAC_COLON_FORMAT.test(macAddress)) {
+    throw new Error(
+      `MAC address '${macAddress}' must be colon-separated, e.g. 00:11:22:33:44:55. ` +
+        `Other formats are accepted by ConfigMgr but stop the client receiving policy.`
+    );
+  }
+
+  const collectionId = String(input.collectionId || "").trim();
+  const body: Record<string, unknown> = {
+    NetbiosName: netbiosName,
+    SMBIOSGUID: input.smBiosGuid ? String(input.smBiosGuid).trim() : "",
+    MACAddress: macAddress,
+    OverwriteExistingRecord: input.overwriteExistingRecord === true,
+  };
+  if (collectionId) {
+    body.AddToCollection = true;
+    body.CollectionId = collectionId;
+  }
+
+  const response = await adminPost<Record<string, unknown>>(
+    cm,
+    wmiStaticMethodPath("SMS_Site", "ImportMachineEntry"),
+    body
+  );
+
+  return {
+    netbiosName,
+    macAddress,
+    machineExists: response.MachineExists === true,
+    resourceId: num(response.ResourceID),
+    smsUniqueIdentifier: String(response.SMSUniqueIdentifier ?? ""),
+  };
 }
 

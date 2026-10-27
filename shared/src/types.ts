@@ -286,7 +286,11 @@ export type DataPanelType =
   | "configmgr_deployments"
   | "configmgr_applications"
   | "configmgr_cmpivot"
-  | "configmgr_status";
+  | "configmgr_status"
+  | "configmgr_device_count"
+  | "configmgr_device_collections"
+  | "configmgr_collection_member"
+  | "configmgr_machine_entry";
 
 export interface DataPanel {
   id: string;
@@ -391,6 +395,10 @@ export const TOOL_TO_PANEL_TYPE: Record<string, DataPanelType> = {
   get_configmgr_applications: "configmgr_applications",
   trigger_configmgr_client_action: "device_action",
   run_cmpivot_query: "configmgr_cmpivot",
+  get_configmgr_device_count: "configmgr_device_count",
+  get_configmgr_device_collections: "configmgr_device_collections",
+  add_configmgr_collection_member: "configmgr_collection_member",
+  import_configmgr_machine_entry: "configmgr_machine_entry",
 };
 
 export const TOOL_TO_PANEL_TITLE: Record<string, string> = {
@@ -484,6 +492,10 @@ export const TOOL_TO_PANEL_TITLE: Record<string, string> = {
   get_configmgr_applications: "ConfigMgr Applications",
   trigger_configmgr_client_action: "ConfigMgr Client Action",
   run_cmpivot_query: "CMPivot Query Results",
+  get_configmgr_device_count: "ConfigMgr Device Count",
+  get_configmgr_device_collections: "ConfigMgr Collection Membership",
+  add_configmgr_collection_member: "ConfigMgr Direct Membership Added",
+  import_configmgr_machine_entry: "ConfigMgr Prestaged Computer",
 };
 
 /**
@@ -560,6 +572,8 @@ export const PANEL_TO_TOOLS: Record<string, string[]> = {
     "get_configmgr_connection_status", "get_configmgr_collections",
     "get_configmgr_deployments", "get_configmgr_applications",
     "trigger_configmgr_client_action", "run_cmpivot_query",
+    "get_configmgr_device_count", "get_configmgr_device_collections",
+    "add_configmgr_collection_member", "import_configmgr_machine_entry",
   ],
 };
 

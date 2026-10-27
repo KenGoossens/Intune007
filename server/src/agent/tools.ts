@@ -1908,6 +1908,109 @@ export const agentTools: ChatCompletionTool[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "get_configmgr_device_count",
+      description:
+        "Count the devices known to Configuration Manager (SMS_R_System). Use this for 'how many devices do I have in ConfigMgr/SCCM' questions. Optionally narrow with an OData filter. The result reports whether the count is exact.",
+      parameters: {
+        type: "object",
+        properties: {
+          filter: {
+            type: "string",
+            description:
+              "Optional OData $filter over SMS_R_System, e.g. \"Active eq 1\" or \"startswith(Name,'NB-')\".",
+          },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_configmgr_device_collections",
+      description:
+        "List the Configuration Manager collections each named device belongs to. Accepts several device names at once, so 'what collections do X, Y and Z belong to' is a single call. Devices that cannot be resolved are reported as not found rather than omitted.",
+      parameters: {
+        type: "object",
+        properties: {
+          deviceNames: {
+            type: "array",
+            items: { type: "string" },
+            description: "ConfigMgr device names to look up.",
+          },
+        },
+        required: ["deviceNames"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "add_configmgr_collection_member",
+      description:
+        "DESTRUCTIVE — Add a device to a Configuration Manager collection as a direct membership rule. Requires the AdminService connector to be connected and a confirmation token. Provide the target collectionId plus either a deviceName or a ConfigMgr resourceId.",
+      parameters: {
+        type: "object",
+        properties: {
+          collectionId: {
+            type: "string",
+            description: "Target collection ID, e.g. 'SMS00001' or 'P0100012'.",
+          },
+          deviceName: {
+            type: "string",
+            description: "Device name to add (resolved to a ConfigMgr ResourceID).",
+          },
+          resourceId: {
+            type: "number",
+            description: "ConfigMgr ResourceID of the device (alternative to deviceName).",
+          },
+          ruleName: {
+            type: "string",
+            description: "Optional name for the membership rule; defaults to the device name.",
+          },
+        },
+        required: ["collectionId"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "import_configmgr_machine_entry",
+      description:
+        "DESTRUCTIVE — Prestage (import) a computer in Configuration Manager for OS Deployment, identified by MAC address and optionally SMBIOS GUID. Requires the AdminService connector to be connected and a confirmation token. The MAC address must be colon-separated (00:11:22:33:44:55); other formats stop the client receiving policy. Optionally adds the imported computer to a collection.",
+      parameters: {
+        type: "object",
+        properties: {
+          netbiosName: {
+            type: "string",
+            description: "NetBIOS/computer name for the new record.",
+          },
+          macAddress: {
+            type: "string",
+            description: "MAC address in colon format, e.g. 00:11:22:33:44:55.",
+          },
+          smBiosGuid: {
+            type: "string",
+            description: "Optional SMBIOS GUID for the computer.",
+          },
+          overwriteExistingRecord: {
+            type: "boolean",
+            description:
+              "Overwrite an existing record with the same identity. Defaults to false; only set true when the user explicitly asks.",
+          },
+          collectionId: {
+            type: "string",
+            description: "Optional collection ID to add the imported computer to.",
+          },
+        },
+        required: ["netbiosName", "macAddress"],
+      },
+    },
+  },
 ];
 
 // Inject confirmationToken into all destructive tool definitions

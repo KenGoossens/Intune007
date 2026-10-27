@@ -176,6 +176,8 @@ export const DESTRUCTIVE_TOOLS = new Set([
   "bulk_rename_apps",
   "trigger_configmgr_client_action",
   "run_cmpivot_query",
+  "add_configmgr_collection_member",
+  "import_configmgr_machine_entry",
 ]);
 
 /** Tools that are read-only and safe */
