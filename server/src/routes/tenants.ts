@@ -23,6 +23,7 @@ import {
   getActiveTenantId,
   buildAdminConsentUrl,
   checkConsentReadiness,
+  renameTenant,
 } from "../graph/tenantManager.js";
 import { isValidUUID, sanitizeErrorMessage } from "../security.js";
 
@@ -32,6 +33,8 @@ const router = Router();
 // Map of state -> { createdAt, requestedTenantId? }. TTL: 10 minutes.
 
 interface ConsentState {
+  /** Chosen before the popup opened; applied when consent comes back. */
+  friendlyName?: string;
   createdAt: number;
   requestedTenantId?: string;
 }
@@ -92,6 +95,26 @@ router.delete("/:tenantId", (req, res) => {
 });
 
 /**
+ * PATCH /api/tenants/:tenantId — set or clear the operator-chosen name.
+ *
+ * The name is how a prompt addresses this tenant ("in Mauvlan"), so it is
+ * editable after connecting, not only at consent time.
+ */
+router.patch("/:tenantId", (req, res) => {
+  const tenantId = String(req.params.tenantId || "");
+  if (!isValidUUID(tenantId)) {
+    return res.status(400).json({ error: "Invalid tenant ID." });
+  }
+  const raw = (req.body ?? {}).friendlyName;
+  if (raw !== null && typeof raw !== "string") {
+    return res.status(400).json({ error: "friendlyName must be a string, or null to clear it." });
+  }
+  const updated = renameTenant(tenantId, raw === null ? null : String(raw));
+  if (!updated) return res.status(404).json({ error: "Tenant is not connected." });
+  res.json(updated);
+});
+
+/**
  * GET /api/tenants/consent-url?tenantId=xxx
  *
  * Returns the admin-consent URL the client should open in a popup.
@@ -119,8 +142,15 @@ router.get("/consent-url", async (req, res) => {
     });
   }
 
+  const friendlyName =
+    typeof req.query.friendlyName === "string" ? req.query.friendlyName.trim().slice(0, 64) : "";
+
   const state = randomBytes(32).toString("hex");
-  consentStates.set(state, { createdAt: Date.now(), requestedTenantId: requested });
+  consentStates.set(state, {
+    createdAt: Date.now(),
+    requestedTenantId: requested,
+    friendlyName: friendlyName || undefined,
+  });
 
   const url = buildAdminConsentUrl(requested, state);
   res.json({ url, state });
@@ -157,6 +187,7 @@ router.get("/consent-callback", async (req, res) => {
       message: "Invalid or expired state token. Please retry the connection.",
     }));
   }
+  const pending = consentStates.get(state);
   consentStates.delete(state);
 
   // Surface any error from Azure AD. Only errors raised after Entra has
@@ -177,10 +208,10 @@ router.get("/consent-callback", async (req, res) => {
   }
 
   try {
-    const tenant = await registerTenant(tenantParam);
+    const tenant = await registerTenant(tenantParam, pending?.friendlyName ?? null);
     return res.type("html").send(renderCallback({
       ok: true,
-      message: `Connected: ${tenant.displayName}`,
+      message: `Connected: ${tenant.friendlyName ? `${tenant.friendlyName} (${tenant.displayName})` : tenant.displayName}`,
       tenant,
     }));
   } catch (err) {

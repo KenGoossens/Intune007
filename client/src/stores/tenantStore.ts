@@ -8,7 +8,8 @@ interface TenantState {
   fetchTenants: () => Promise<void>;
   switchTenant: (tenantId: string) => Promise<void>;
   disconnectTenant: (tenantId: string) => Promise<void>;
-  beginConsent: (tenantId: string) => Promise<{ url: string }>;
+  beginConsent: (tenantId: string, friendlyName?: string) => Promise<{ url: string }>;
+  renameTenant: (tenantId: string, friendlyName: string | null) => Promise<void>;
 }
 
 export const useTenantStore = create<TenantState>((set, get) => ({
@@ -56,13 +57,29 @@ export const useTenantStore = create<TenantState>((set, get) => ({
     await get().fetchTenants();
   },
 
-  async beginConsent(tenantId) {
-    const qs = tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : "";
-    const res = await fetch(`/api/tenants/consent-url${qs}`);
+  async beginConsent(tenantId, friendlyName) {
+    const params = new URLSearchParams();
+    if (tenantId) params.set("tenantId", tenantId);
+    if (friendlyName) params.set("friendlyName", friendlyName);
+    const qs = params.toString();
+    const res = await fetch(`/api/tenants/consent-url${qs ? `?${qs}` : ""}`);
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
       throw new Error(body.error || `HTTP ${res.status}`);
     }
     return (await res.json()) as { url: string };
+  },
+
+  async renameTenant(tenantId, friendlyName) {
+    const res = await fetch(`/api/tenants/${encodeURIComponent(tenantId)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ friendlyName }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || `HTTP ${res.status}`);
+    }
+    await get().fetchTenants();
   },
 }));

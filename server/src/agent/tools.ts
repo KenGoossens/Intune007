@@ -1047,7 +1047,7 @@ export const agentTools: ChatCompletionTool[] = [
     function: {
       name: "list_tenants",
       description:
-        "List all configured Intune tenants and show which one is currently active.",
+        "List all connected Intune tenants with their friendly names, directory names and IDs, and show which one is currently active. Use this when the user asks which tenants are connected, or before switching if you are unsure what a name they used refers to.",
       parameters: {
         type: "object",
         properties: {},
@@ -1060,16 +1060,17 @@ export const agentTools: ChatCompletionTool[] = [
     function: {
       name: "switch_tenant",
       description:
-        "Switch the active tenant for subsequent Graph API queries. All tools will operate against the selected tenant.",
+        "Switch the active tenant for subsequent Graph API queries. All later tools operate against the selected tenant until it is switched again. Use this whenever the user asks a question about a named tenant — for example 'how many devices in Mauvlan?' — then run the query. The tenant can be named the way the user named it; it does not have to be a GUID.",
       parameters: {
         type: "object",
         properties: {
-          tenantId: {
+          tenant: {
             type: "string",
-            description: "The tenant ID to switch to. Use list_tenants to see available tenants.",
+            description:
+              "The tenant to switch to: its friendly name, its directory name, or its tenant ID. Pass whatever the user said.",
           },
         },
-        required: ["tenantId"],
+        required: ["tenant"],
       },
     },
   },

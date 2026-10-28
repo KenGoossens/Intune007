@@ -781,7 +781,11 @@ export async function executeTool(
       }
 
       case "switch_tenant": {
-        const result = switchTenant(args.tenantId);
+        // `tenantId` is accepted too: older transcripts and saved workflows
+        // still use it, and a model that has seen them will send it.
+        const ref = String(args.tenant ?? args.tenantId ?? "");
+        const result = switchTenant(ref);
+        if (!result.success) throw new Error(result.message);
         return { data: [result], totalCount: 1 };
       }
 

@@ -2,7 +2,10 @@
 
 export interface TenantInfo {
   tenantId: string;
+  /** The directory's own name, as Graph reports it. */
   displayName: string;
+  /** An operator-chosen name, used to address this tenant in a prompt. */
+  friendlyName?: string;
   addedAt: string;
   lastUsedAt: string | null;
   isActive: boolean;

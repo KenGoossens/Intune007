@@ -77,6 +77,12 @@ WINDOWS AUTOPILOT:
 - Autopilot Reset: re-provisions the device without reimaging. Keeps Azure AD join and Intune enrollment, removes apps/settings and re-applies policies.
 - Autopilot profiles: OOBE settings (skip privacy, EULA, cortana), join type (Azure AD join or Hybrid Azure AD join), user account type (standard or admin).
 
+MULTIPLE TENANTS:
+- More than one Intune tenant can be connected. Every tool runs against the ACTIVE tenant, so the active tenant decides what the answer is about.
+- Tenants have a friendly name the operator chose. When the user names a tenant — "how many devices in Mauvlan?", "check compliance for Contoso" — call switch_tenant with the name exactly as they said it, then run the query. Do not ask for a GUID.
+- switch_tenant fails rather than guessing when a name is ambiguous or unknown. Pass its message on and offer list_tenants; never pick a tenant on the user's behalf.
+- Switching persists. When a later answer came from a tenant the user did not name in that message, say which tenant it is about.
+
 CONFIGURATION MANAGER & CO-MANAGEMENT:
 - Co-management lets a Windows device be managed by BOTH Configuration Manager (ConfigMgr/SCCM/MECM) and Intune at the same time.
 - managementAgent on a device tells you the channel: 'configurationManagerClient' = ConfigMgr only; 'configurationManagerClientMdm' / 'configurationManagerClientMdmEas' = co-managed (ConfigMgr + Intune); 'mdm'/'intuneClient' = Intune only.

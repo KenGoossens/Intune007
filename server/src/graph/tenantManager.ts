@@ -21,10 +21,12 @@ import {
   getTenant,
   removeTenant,
   touchTenant,
+  setFriendlyName,
   getActiveTenantId as getStoredActiveTenantId,
   setActiveTenantId as setStoredActiveTenantId,
   toTenantInfo,
 } from "../tenants/tenantStore.js";
+import type { StoredTenant } from "../tenants/tenantStore.js";
 import type { TenantInfo } from "@intune-agent/shared";
 
 const clients: Map<string, Client> = new Map();
@@ -134,28 +136,82 @@ export function getActiveTenantId(): string {
 /**
  * Switch the active tenant. Persists across restarts.
  */
-export function switchTenant(tenantId: string): {
+/**
+ * Resolve however a person referred to a tenant — a GUID, the friendly name
+ * they gave it, or the directory's own name — to a connected tenant.
+ *
+ * A prompt says "in Mauvlan", not a GUID, so a tenant that cannot be addressed
+ * by name cannot be addressed at all. An ambiguous name is reported rather than
+ * guessed: picking one of two tenants at random would run the query somewhere
+ * the user did not mean.
+ */
+export function resolveTenantRef(
+  ref: string
+): { tenant: StoredTenant } | { error: string } {
+  initialize();
+  const needle = String(ref ?? "").trim().toLowerCase();
+  if (!needle) return { error: "A tenant name or ID is required." };
+
+  const all = listTenants();
+  const exact = all.find((t) => t.tenantId.toLowerCase() === needle);
+  if (exact) return { tenant: exact };
+
+  const named = (t: StoredTenant) =>
+    [t.friendlyName ?? "", t.displayName].filter(Boolean).map((v) => v.toLowerCase());
+
+  const byName = all.filter((t) => named(t).includes(needle));
+  if (byName.length === 1) return { tenant: byName[0] };
+  if (byName.length > 1) return { error: ambiguous(ref, byName) };
+
+  const partial = all.filter((t) => named(t).some((n) => n.includes(needle)));
+  if (partial.length === 1) return { tenant: partial[0] };
+  if (partial.length > 1) return { error: ambiguous(ref, partial) };
+
+  const known = all.map((t) => t.friendlyName || t.displayName).join(", ");
+  return {
+    error: `No connected tenant matches "${ref}".${known ? ` Connected: ${known}.` : " No tenants are connected."}`,
+  };
+}
+
+function ambiguous(ref: string, matches: StoredTenant[]): string {
+  const list = matches
+    .map((t) => `${t.friendlyName || t.displayName} (${t.tenantId})`)
+    .join(", ");
+  return `"${ref}" matches more than one connected tenant: ${list}. Please be more specific.`;
+}
+
+export function switchTenant(tenantRef: string): {
   success: boolean;
   message: string;
   activeTenant: string;
 } {
   initialize();
-  const tenant = getTenant(tenantId);
-  if (!tenant) {
-    return {
-      success: false,
-      message: `Tenant ${tenantId} is not connected.`,
-      activeTenant: activeTenantId,
-    };
+  const resolved = resolveTenantRef(tenantRef);
+  if ("error" in resolved) {
+    return { success: false, message: resolved.error, activeTenant: activeTenantId };
   }
-  activeTenantId = tenantId;
-  setStoredActiveTenantId(tenantId);
-  touchTenant(tenantId);
+  const tenant = resolved.tenant;
+  activeTenantId = tenant.tenantId;
+  setStoredActiveTenantId(tenant.tenantId);
+  touchTenant(tenant.tenantId);
   return {
     success: true,
-    message: `Switched to tenant: ${tenant.displayName}`,
+    message: `Switched to tenant: ${tenantLabel(tenant)}`,
     activeTenant: activeTenantId,
   };
+}
+
+/** How a tenant should be named back to the user. */
+function tenantLabel(t: StoredTenant): string {
+  return t.friendlyName ? `${t.friendlyName} (${t.displayName})` : t.displayName;
+}
+
+/** Rename a connected tenant. */
+export function renameTenant(tenantId: string, friendlyName: string | null): TenantInfo | null {
+  initialize();
+  if (!setFriendlyName(tenantId, friendlyName)) return null;
+  const stored = getTenant(tenantId)!;
+  return toTenantInfo(stored, stored.tenantId === activeTenantId);
 }
 
 /**
@@ -170,29 +226,68 @@ export function listConfiguredTenants(): TenantInfo[] {
  * Register a newly-consented tenant by probing Graph for its display name.
  * This both verifies admin consent succeeded and gives us a friendly label.
  */
-export async function registerTenant(tenantId: string): Promise<TenantInfo> {
+export async function registerTenant(
+  tenantId: string,
+  friendlyName?: string | null
+): Promise<TenantInfo> {
   initialize();
 
-  let displayName = tenantId;
-  try {
-    const probe = buildClient(tenantId);
-    const org = await probe.api("/organization").select("displayName").get();
-    const first = org?.value?.[0];
-    if (first?.displayName) {
-      displayName = String(first.displayName);
-    }
-  } catch (err) {
-    throw new Error(
-      `Could not query tenant ${tenantId}: ${err instanceof Error ? err.message : String(err)}. ` +
-        `Verify the app is multi-tenant and admin consent was granted.`
-    );
-  }
+  const probe = await probeTenantName(tenantId);
+  if ("error" in probe) throw new Error(probe.error);
 
-  addTenant(tenantId, displayName);
+  addTenant(tenantId, probe.displayName, friendlyName);
   clients.delete(tenantId);
 
   const stored = getTenant(tenantId)!;
   return toTenantInfo(stored, stored.tenantId === activeTenantId);
+}
+
+/**
+ * Read the new tenant's directory name, retrying while the service principal
+ * propagates.
+ *
+ * Consent creates the enterprise application in the target tenant, but it is
+ * not immediately usable everywhere: a token request made in the seconds right
+ * after consent can still be refused as though the app did not exist. The
+ * consent callback runs exactly in that window, so a single attempt turns a
+ * successful consent into "could not query tenant" and the tenant is never
+ * added — with no way to retry but to consent again.
+ */
+async function probeTenantName(
+  tenantId: string
+): Promise<{ displayName: string } | { error: string }> {
+  const delaysMs = [0, 2_000, 4_000, 8_000];
+  let last = "";
+
+  for (const delay of delaysMs) {
+    if (delay) await new Promise((r) => setTimeout(r, delay));
+    try {
+      const org = await buildClient(tenantId).api("/organization").select("displayName").get();
+      const name = org?.value?.[0]?.displayName;
+      if (name) return { displayName: String(name) };
+      return { displayName: tenantId };
+    } catch (err) {
+      last = err instanceof Error ? err.message : String(err);
+      // Only propagation-shaped failures are worth waiting on. A genuine
+      // misconfiguration will not fix itself, and retrying it just makes the
+      // user wait fourteen seconds for the same answer.
+      if (!isPropagationError(last)) break;
+    }
+  }
+
+  return {
+    error:
+      `Could not query tenant ${tenantId}: ${last}. ` +
+      `If consent was just granted, the enterprise application may still be propagating — ` +
+      `wait a moment and try connecting again. Otherwise verify the app registration is ` +
+      `multi-tenant and that admin consent completed.`,
+  };
+}
+
+function isPropagationError(message: string): boolean {
+  return /AADSTS700016|AADSTS900023|not found in the directory|was not found|does not exist/i.test(
+    message
+  );
 }
 
 /**
