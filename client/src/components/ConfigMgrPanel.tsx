@@ -1,8 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import {
   Server,
   RefreshCw,
   Loader2,
+  Monitor,
+  ChevronDown,
+  ChevronRight,
   Cloud,
   HardDrive,
   ShieldCheck,
@@ -22,9 +25,168 @@ import {
   Play,
 } from "lucide-react";
 import { useConfigMgrStore } from "../stores/configMgrStore.ts";
+import { useNavigationStore } from "../stores/navigationStore.ts";
 import { DeviceDrillLink, UserDrillLink } from "./DrillLinks.tsx";
 import ConfigMgrConnectWizard from "./ConfigMgrConnectWizard.tsx";
 import type { ComanagedDeviceInfo } from "@intune-agent/shared";
+
+function Fact({ label, value }: { label: string; value: string }) {
+  if (!value) return null;
+  return (
+    <span className="text-gray-500">
+      {label}: <span className="text-gray-300">{value}</span>
+    </span>
+  );
+}
+
+function formatWhen(value: string): string {
+  if (!value) return "";
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? value : d.toLocaleString();
+}
+
+/**
+ * A ConfigMgr device name that opens its ConfigMgr record rather than the
+ * Intune device card: these devices only exist in Intune when Entra-joined, so
+ * the Intune card is a dead end for a ConfigMgr-only device. The Intune link is
+ * offered only when the record carries an AAD device ID.
+ */
+function ConfigMgrDeviceName({ name }: { name: string }) {
+  const { deviceDetailName, deviceDetailLoading, deviceDetailError, deviceCard, toggleDeviceDetail } =
+    useConfigMgrStore();
+  const navigateTo = useNavigationStore((s) => s.navigateTo);
+  const open = deviceDetailName === name;
+
+  return (
+    <>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          void toggleDeviceDetail(name);
+        }}
+        className="text-[11px] text-left text-brand-400 hover:underline inline-flex items-center gap-1"
+      >
+        <Monitor size={11} className="shrink-0 text-gray-500" />
+        {name}
+      </button>
+      {open && (
+        <div className="mt-1 ml-4 pl-2 border-l border-gray-700/60">
+          {deviceDetailLoading ? (
+            <span className="text-[10px] text-gray-500">Loading ConfigMgr detail…</span>
+          ) : deviceDetailError ? (
+            <span className="text-[10px] text-red-400">{deviceDetailError}</span>
+          ) : !deviceCard ? (
+            <span className="text-[10px] text-gray-600">No ConfigMgr record returned.</span>
+          ) : (
+            <div className="space-y-2 py-1">
+              <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-[10px]">
+                <Fact label="Operating system" value={deviceCard.operatingSystem} />
+                <Fact label="Build" value={deviceCard.build} />
+                <Fact label="ConfigMgr client" value={deviceCard.clientVersion} />
+                <Fact
+                  label="Client state"
+                  value={
+                    deviceCard.isObsolete
+                      ? "Obsolete"
+                      : deviceCard.isClient
+                        ? deviceCard.isActive
+                          ? "Active"
+                          : "Inactive"
+                        : "No client"
+                  }
+                />
+                <Fact label="AD site" value={deviceCard.adSiteName} />
+                <Fact label="Domain" value={deviceCard.domain} />
+                <Fact label="IP address" value={deviceCard.ipAddresses.join(", ")} />
+                <Fact label="MAC address" value={deviceCard.macAddresses.join(", ")} />
+                <Fact label="Last logon" value={formatWhen(deviceCard.lastLogon)} />
+                <Fact label="Discovered" value={formatWhen(deviceCard.createdDate)} />
+                <Fact label="Resource ID" value={String(deviceCard.resourceId || "")} />
+                <Fact label="Assigned site" value={deviceCard.assignedSites.join(", ")} />
+              </div>
+
+              {deviceCard.collections.length > 0 && (
+                <div>
+                  <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">
+                    Member of {deviceCard.collections.length} collection(s)
+                  </p>
+                  <div className="flex flex-wrap gap-1">
+                    {deviceCard.collections.map((c) => (
+                      <span
+                        key={c.collectionId}
+                        className="text-[10px] px-1.5 py-0.5 rounded bg-gray-800/60 text-gray-300"
+                      >
+                        {c.name}
+                        <span className="text-gray-600"> · {c.collectionId}</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/*
+                Being Entra-joined is not enough to offer the Intune card: the
+                device may be joined to a different tenant than the one this app
+                is connected to, in which case the lookup can only ever answer
+                "device not found". Say which it is instead of offering a link
+                that cannot resolve.
+              */}
+              {deviceCard.aadDeviceId &&
+                (deviceCard.inConnectedIntuneTenant ? (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      navigateTo("deviceCard", { deviceName: deviceCard.name });
+                    }}
+                    className="text-[10px] text-brand-400 hover:underline"
+                  >
+                    Entra-joined — open the Intune device card →
+                  </button>
+                ) : (
+                  <div className="text-[10px] text-gray-500">
+                    Entra-joined to a different tenant
+                    {deviceCard.aadTenantId ? ` (${deviceCard.aadTenantId})` : ""} than the
+                    one Intune007 is connected to, so it has no Intune device card here.
+                  </div>
+                ))}
+            </div>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
+/** Shared loading / error / empty wrapper for an expanded drill-down row. */
+function DetailBody({
+  loading,
+  error,
+  empty,
+  emptyText,
+  children,
+}: {
+  loading: boolean;
+  error: string | null;
+  empty: boolean;
+  emptyText: string;
+  children: React.ReactNode;
+}) {
+  if (loading) {
+    return (
+      <div className="flex items-center gap-2 text-gray-500 py-2">
+        <Loader2 size={13} className="animate-spin" />
+        <span className="text-[11px]">Loading…</span>
+      </div>
+    );
+  }
+  if (error) {
+    return <p className="text-[11px] text-red-400 py-1">{error}</p>;
+  }
+  if (empty) {
+    return <p className="text-[11px] text-gray-600 py-1">{emptyText}</p>;
+  }
+  return <>{children}</>;
+}
 
 const BRAND = "#D4A017"; // Intune (gold)
 const CONFIGMGR = "#3B82F6"; // ConfigMgr (blue)
@@ -564,14 +726,48 @@ function SiteTab() {
   } = useConfigMgrStore();
   const [resource, setResource] = useState<SiteView>("collections");
   const [wizardOpen, setWizardOpen] = useState(false);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const {
+    detailLoading,
+    detailError,
+    collectionMembers,
+    deploymentStatus,
+    applicationDetail,
+    fetchCollectionMembers,
+    fetchDeploymentStatus,
+    fetchApplicationDetail,
+    clearDetail,
+  } = useConfigMgrStore();
 
+  /** Toggle a row open, lazily loading its detail the first time. */
+  const toggleRow = (key: string, load: () => void) => {
+    if (expanded === key) {
+      setExpanded(null);
+      clearDetail();
+      return;
+    }
+    setExpanded(key);
+    load();
+  };
+
+  // Re-check on mount rather than only when absent: the connection can change
+  // (a site connected, demo switched off) while this tab is not on screen.
   useEffect(() => {
-    if (!connection) fetchConnection();
-  }, [connection, fetchConnection]);
+    fetchConnection();
+  }, [fetchConnection]);
 
   useEffect(() => {
     if (connection?.connected && resource !== "cmpivot") fetchSite(resource);
-  }, [connection?.connected, resource, fetchSite]);
+    // Keyed on the connection's identity, not just `connected`: switching from
+    // simulated data to a real site leaves `connected` true, so depending on
+    // that boolean alone left stale demo rows on screen.
+  }, [connection?.connected, connection?.url, connection?.siteCode, resource, fetchSite]);
+
+  // A different site (or leaving demo mode) invalidates any open drill-down.
+  useEffect(() => {
+    setExpanded(null);
+    clearDetail();
+  }, [connection?.url, connection?.siteCode, clearDetail]);
 
   if (connectionLoading && !connection) {
     return (
@@ -611,7 +807,16 @@ function SiteTab() {
   return (
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-2">
-        {connection?.connected ? (
+        {connection?.simulated ? (
+          <div className="flex items-center gap-2 text-xs text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2 flex-1">
+            <AlertTriangle size={14} className="shrink-0" />
+            <span>
+              <strong>Simulated data</strong> — demo mode is on and no ConfigMgr
+              site is connected. Everything below is sample data and writes change
+              nothing. Turn it off in Settings.
+            </span>
+          </div>
+        ) : connection?.connected ? (
           <div className="flex items-center gap-2 text-xs text-green-400 bg-green-500/10 border border-green-500/30 rounded-lg px-3 py-2 flex-1">
             <CheckCircle2 size={14} className="shrink-0" />
             <span>
@@ -696,17 +901,68 @@ function SiteTab() {
                   </thead>
                   <tbody>
                     {collections.map((c) => (
-                      <tr
-                        key={c.collectionId}
-                        className="border-t border-gray-800/60 hover:bg-gray-800/30"
-                      >
-                        <td className="px-3 py-2 text-gray-200">{c.name}</td>
-                        <td className="px-3 py-2 text-gray-400">{c.collectionType}</td>
-                        <td className="px-3 py-2 text-gray-300">{c.memberCount}</td>
-                        <td className="px-3 py-2 text-gray-500">
-                          {c.limitToCollectionName || "—"}
-                        </td>
-                      </tr>
+                      <Fragment key={c.collectionId}>
+                        <tr
+                          onClick={() =>
+                            toggleRow(`collection:${c.collectionId}`, () =>
+                              fetchCollectionMembers(c.collectionId)
+                            )
+                          }
+                          className="border-t border-gray-800/60 hover:bg-gray-800/30 cursor-pointer"
+                        >
+                          <td className="px-3 py-2 text-gray-200">
+                            <span className="inline-flex items-center gap-1.5">
+                              {expanded === `collection:${c.collectionId}` ? (
+                                <ChevronDown size={12} className="text-gray-500" />
+                              ) : (
+                                <ChevronRight size={12} className="text-gray-600" />
+                              )}
+                              {c.name}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 text-gray-400">{c.collectionType}</td>
+                          <td className="px-3 py-2 text-gray-300">{c.memberCount}</td>
+                          <td className="px-3 py-2 text-gray-500">
+                            {c.limitToCollectionName || "—"}
+                          </td>
+                        </tr>
+                        {expanded === `collection:${c.collectionId}` && (
+                          <tr className="bg-gray-900/40">
+                            <td colSpan={4} className="px-4 py-3 border-t border-gray-800/60">
+                              <DetailBody
+                                loading={detailLoading}
+                                error={detailError}
+                                empty={collectionMembers.length === 0}
+                                emptyText="No members returned for this collection."
+                              >
+                                <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-2">
+                                  {collectionMembers.length} member device(s)
+                                </p>
+                                <div className="space-y-1">
+                                  {collectionMembers.map((m) => (
+                                    <div
+                                      key={m.resourceId}
+                                      className="flex items-center gap-2 px-2 py-1.5 rounded bg-gray-800/40"
+                                    >
+                                      <div className="flex-1 min-w-0">
+                                        <ConfigMgrDeviceName name={m.name} />
+                                      </div>
+                                      <span className="text-[10px] text-gray-500">
+                                        {m.isActive ? "Active" : "Inactive"}
+                                      </span>
+                                      {m.clientVersion && (
+                                        <span className="text-[10px] text-gray-600 font-mono">
+                                          {m.clientVersion}
+                                        </span>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              </DetailBody>
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
                     ))}
                     {collections.length === 0 && (
                       <tr>
@@ -734,22 +990,109 @@ function SiteTab() {
                   </thead>
                   <tbody>
                     {deployments.map((d) => (
-                      <tr
-                        key={d.deploymentId}
-                        className="border-t border-gray-800/60 hover:bg-gray-800/30"
-                      >
-                        <td className="px-3 py-2 text-gray-200">{d.softwareName}</td>
-                        <td className="px-3 py-2 text-gray-400">{d.collectionName}</td>
-                        <td className="px-3 py-2 text-gray-400">{d.intent}</td>
-                        <td className="px-3 py-2 text-gray-400">{d.featureType}</td>
-                        <td className="px-3 py-2 text-green-400">{d.success}</td>
-                        <td
-                          className={`px-3 py-2 ${d.errors > 0 ? "text-red-400" : "text-gray-500"}`}
+                      <Fragment key={d.deploymentId}>
+                        <tr
+                          onClick={() =>
+                            toggleRow(`deployment:${d.deploymentId}`, () =>
+                              fetchDeploymentStatus(String(d.assignmentId))
+                            )
+                          }
+                          className="border-t border-gray-800/60 hover:bg-gray-800/30 cursor-pointer"
                         >
-                          {d.errors}
-                        </td>
-                        <td className="px-3 py-2 text-gray-400">{d.inProgress}</td>
-                      </tr>
+                          <td className="px-3 py-2 text-gray-200">
+                            <span className="inline-flex items-center gap-1.5">
+                              {expanded === `deployment:${d.deploymentId}` ? (
+                                <ChevronDown size={12} className="text-gray-500" />
+                              ) : (
+                                <ChevronRight size={12} className="text-gray-600" />
+                              )}
+                              {d.softwareName}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 text-gray-400">{d.collectionName}</td>
+                          <td className="px-3 py-2 text-gray-400">{d.intent}</td>
+                          <td className="px-3 py-2 text-gray-400">{d.featureType}</td>
+                          <td className="px-3 py-2 text-green-400">{d.success}</td>
+                          <td
+                            className={`px-3 py-2 ${d.errors > 0 ? "text-red-400" : "text-gray-500"}`}
+                          >
+                            {d.errors}
+                          </td>
+                          <td className="px-3 py-2 text-gray-400">{d.inProgress}</td>
+                        </tr>
+                        {expanded === `deployment:${d.deploymentId}` && (
+                          <tr className="bg-gray-900/40">
+                            <td colSpan={7} className="px-4 py-3 border-t border-gray-800/60">
+                              <DetailBody
+                                loading={detailLoading}
+                                error={detailError}
+                                empty={deploymentStatus.length === 0}
+                                emptyText="No per-device status returned for this deployment."
+                              >
+                                <div className="space-y-1.5">
+                                  {deploymentStatus.map((s, i) => (
+                                    <div
+                                      key={`${s.machineName}-${i}`}
+                                      className="px-2 py-1.5 rounded bg-gray-800/40"
+                                    >
+                                      <div className="flex items-center gap-2">
+                                        <div className="flex-1 min-w-0">
+                                          <ConfigMgrDeviceName name={s.machineName} />
+                                        </div>
+                                        <span
+                                          className={`text-[10px] ${
+                                            s.status === "Error"
+                                              ? "text-red-400"
+                                              : s.status === "Success"
+                                                ? "text-green-400"
+                                                : "text-gray-400"
+                                          }`}
+                                        >
+                                          {s.status}
+                                        </span>
+                                        {s.enforcementState && (
+                                          <span className="text-[10px] text-gray-600">
+                                            {s.enforcementState}
+                                          </span>
+                                        )}
+                                      </div>
+                                      {s.errorCode && (
+                                        <div className="mt-1 pl-1 border-l border-gray-700/60">
+                                          <p className="text-[10px] font-mono text-amber-400">
+                                            {s.errorDocumentedAs ?? s.errorCode}
+                                            {s.errorDocumentedAs &&
+                                              s.errorDocumentedAs !== s.errorCode && (
+                                                <span className="text-gray-600">
+                                                  {" "}
+                                                  ({s.errorCode})
+                                                </span>
+                                              )}
+                                          </p>
+                                          {s.errorRecognised ? (
+                                            <>
+                                              <p className="text-[10px] text-gray-300 mt-0.5">
+                                                {s.errorMeaning}
+                                              </p>
+                                              <p className="text-[10px] text-gray-500 mt-0.5">
+                                                {s.errorRemediation}
+                                              </p>
+                                            </>
+                                          ) : (
+                                            <p className="text-[10px] text-gray-500 mt-0.5">
+                                              Not in the verified error reference — check
+                                              AppEnforce.log and AppDiscovery.log on the device.
+                                            </p>
+                                          )}
+                                        </div>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              </DetailBody>
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
                     ))}
                     {deployments.length === 0 && (
                       <tr>
@@ -776,29 +1119,106 @@ function SiteTab() {
                   </thead>
                   <tbody>
                     {applications.map((a) => (
-                      <tr
-                        key={a.ciId}
-                        className="border-t border-gray-800/60 hover:bg-gray-800/30"
-                      >
-                        <td className="px-3 py-2 text-gray-200">{a.name}</td>
-                        <td className="px-3 py-2 text-gray-400">
-                          {a.manufacturer || "—"}
-                        </td>
-                        <td className="px-3 py-2 text-gray-400">{a.version || "—"}</td>
-                        <td className="px-3 py-2 text-gray-300">
-                          {a.numberOfDeployments}
-                        </td>
-                        <td className="px-3 py-2 text-gray-300">
-                          {a.numberOfDevicesWithApp}
-                        </td>
-                        <td className="px-3 py-2">
-                          {a.isDeployed ? (
-                            <CheckCircle2 size={13} className="text-green-400" />
-                          ) : (
-                            <span className="text-gray-600">—</span>
-                          )}
-                        </td>
-                      </tr>
+                      <Fragment key={a.ciId}>
+                        <tr
+                          onClick={() =>
+                            toggleRow(`application:${a.ciId}`, () =>
+                              fetchApplicationDetail(a.ciId)
+                            )
+                          }
+                          className="border-t border-gray-800/60 hover:bg-gray-800/30 cursor-pointer"
+                        >
+                          <td className="px-3 py-2 text-gray-200">
+                            <span className="inline-flex items-center gap-1.5">
+                              {expanded === `application:${a.ciId}` ? (
+                                <ChevronDown size={12} className="text-gray-500" />
+                              ) : (
+                                <ChevronRight size={12} className="text-gray-600" />
+                              )}
+                              {a.name}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 text-gray-400">
+                            {a.manufacturer || "—"}
+                          </td>
+                          <td className="px-3 py-2 text-gray-400">{a.version || "—"}</td>
+                          <td className="px-3 py-2 text-gray-300">
+                            {a.numberOfDeployments}
+                          </td>
+                          <td className="px-3 py-2 text-gray-300">
+                            {a.numberOfDevicesWithApp}
+                          </td>
+                          <td className="px-3 py-2">
+                            {a.isDeployed ? (
+                              <CheckCircle2 size={13} className="text-green-400" />
+                            ) : (
+                              <span className="text-gray-600">—</span>
+                            )}
+                          </td>
+                        </tr>
+                        {expanded === `application:${a.ciId}` && (
+                          <tr className="bg-gray-900/40">
+                            <td colSpan={6} className="px-4 py-3 border-t border-gray-800/60">
+                              <DetailBody
+                                loading={detailLoading}
+                                error={detailError}
+                                empty={!applicationDetail}
+                                emptyText="No detail returned for this application."
+                              >
+                                {applicationDetail && (
+                                  <div className="space-y-1.5 text-[11px]">
+                                    {applicationDetail.description && (
+                                      <p className="text-gray-300">
+                                        {applicationDetail.description}
+                                      </p>
+                                    )}
+                                    <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-gray-500">
+                                      <span>
+                                        Devices with failures:{" "}
+                                        <span
+                                          className={
+                                            (applicationDetail.numberOfDevicesWithFailure ?? 0) > 0
+                                              ? "text-red-400"
+                                              : "text-gray-300"
+                                          }
+                                        >
+                                          {applicationDetail.numberOfDevicesWithFailure ?? "—"}
+                                        </span>
+                                      </span>
+                                      <span>
+                                        Enabled:{" "}
+                                        <span className="text-gray-300">
+                                          {applicationDetail.isEnabled === undefined
+                                            ? "—"
+                                            : applicationDetail.isEnabled
+                                              ? "Yes"
+                                              : "No"}
+                                        </span>
+                                      </span>
+                                      <span>
+                                        Superseded:{" "}
+                                        <span className="text-gray-300">
+                                          {applicationDetail.isSuperseded === undefined
+                                            ? "—"
+                                            : applicationDetail.isSuperseded
+                                              ? "Yes"
+                                              : "No"}
+                                        </span>
+                                      </span>
+                                      <span>
+                                        Created by:{" "}
+                                        <span className="text-gray-300">
+                                          {applicationDetail.createdBy || "—"}
+                                        </span>
+                                      </span>
+                                    </div>
+                                  </div>
+                                )}
+                              </DetailBody>
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
                     ))}
                     {applications.length === 0 && (
                       <tr>

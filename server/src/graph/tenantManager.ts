@@ -21,10 +21,12 @@ import {
   getTenant,
   removeTenant,
   touchTenant,
+  setFriendlyName,
   getActiveTenantId as getStoredActiveTenantId,
   setActiveTenantId as setStoredActiveTenantId,
   toTenantInfo,
 } from "../tenants/tenantStore.js";
+import type { StoredTenant } from "../tenants/tenantStore.js";
 import type { TenantInfo } from "@intune-agent/shared";
 
 const clients: Map<string, Client> = new Map();
@@ -134,28 +136,82 @@ export function getActiveTenantId(): string {
 /**
  * Switch the active tenant. Persists across restarts.
  */
-export function switchTenant(tenantId: string): {
+/**
+ * Resolve however a person referred to a tenant — a GUID, the friendly name
+ * they gave it, or the directory's own name — to a connected tenant.
+ *
+ * A prompt says "in Mauvlan", not a GUID, so a tenant that cannot be addressed
+ * by name cannot be addressed at all. An ambiguous name is reported rather than
+ * guessed: picking one of two tenants at random would run the query somewhere
+ * the user did not mean.
+ */
+export function resolveTenantRef(
+  ref: string
+): { tenant: StoredTenant } | { error: string } {
+  initialize();
+  const needle = String(ref ?? "").trim().toLowerCase();
+  if (!needle) return { error: "A tenant name or ID is required." };
+
+  const all = listTenants();
+  const exact = all.find((t) => t.tenantId.toLowerCase() === needle);
+  if (exact) return { tenant: exact };
+
+  const named = (t: StoredTenant) =>
+    [t.friendlyName ?? "", t.displayName].filter(Boolean).map((v) => v.toLowerCase());
+
+  const byName = all.filter((t) => named(t).includes(needle));
+  if (byName.length === 1) return { tenant: byName[0] };
+  if (byName.length > 1) return { error: ambiguous(ref, byName) };
+
+  const partial = all.filter((t) => named(t).some((n) => n.includes(needle)));
+  if (partial.length === 1) return { tenant: partial[0] };
+  if (partial.length > 1) return { error: ambiguous(ref, partial) };
+
+  const known = all.map((t) => t.friendlyName || t.displayName).join(", ");
+  return {
+    error: `No connected tenant matches "${ref}".${known ? ` Connected: ${known}.` : " No tenants are connected."}`,
+  };
+}
+
+function ambiguous(ref: string, matches: StoredTenant[]): string {
+  const list = matches
+    .map((t) => `${t.friendlyName || t.displayName} (${t.tenantId})`)
+    .join(", ");
+  return `"${ref}" matches more than one connected tenant: ${list}. Please be more specific.`;
+}
+
+export function switchTenant(tenantRef: string): {
   success: boolean;
   message: string;
   activeTenant: string;
 } {
   initialize();
-  const tenant = getTenant(tenantId);
-  if (!tenant) {
-    return {
-      success: false,
-      message: `Tenant ${tenantId} is not connected.`,
-      activeTenant: activeTenantId,
-    };
+  const resolved = resolveTenantRef(tenantRef);
+  if ("error" in resolved) {
+    return { success: false, message: resolved.error, activeTenant: activeTenantId };
   }
-  activeTenantId = tenantId;
-  setStoredActiveTenantId(tenantId);
-  touchTenant(tenantId);
+  const tenant = resolved.tenant;
+  activeTenantId = tenant.tenantId;
+  setStoredActiveTenantId(tenant.tenantId);
+  touchTenant(tenant.tenantId);
   return {
     success: true,
-    message: `Switched to tenant: ${tenant.displayName}`,
+    message: `Switched to tenant: ${tenantLabel(tenant)}`,
     activeTenant: activeTenantId,
   };
+}
+
+/** How a tenant should be named back to the user. */
+function tenantLabel(t: StoredTenant): string {
+  return t.friendlyName ? `${t.friendlyName} (${t.displayName})` : t.displayName;
+}
+
+/** Rename a connected tenant. */
+export function renameTenant(tenantId: string, friendlyName: string | null): TenantInfo | null {
+  initialize();
+  if (!setFriendlyName(tenantId, friendlyName)) return null;
+  const stored = getTenant(tenantId)!;
+  return toTenantInfo(stored, stored.tenantId === activeTenantId);
 }
 
 /**
@@ -170,29 +226,79 @@ export function listConfiguredTenants(): TenantInfo[] {
  * Register a newly-consented tenant by probing Graph for its display name.
  * This both verifies admin consent succeeded and gives us a friendly label.
  */
-export async function registerTenant(tenantId: string): Promise<TenantInfo> {
+export async function registerTenant(
+  tenantRef: string,
+  friendlyName?: string | null
+): Promise<TenantInfo> {
   initialize();
 
-  let displayName = tenantId;
-  try {
-    const probe = buildClient(tenantId);
-    const org = await probe.api("/organization").select("displayName").get();
-    const first = org?.value?.[0];
-    if (first?.displayName) {
-      displayName = String(first.displayName);
-    }
-  } catch (err) {
-    throw new Error(
-      `Could not query tenant ${tenantId}: ${err instanceof Error ? err.message : String(err)}. ` +
-        `Verify the app is multi-tenant and admin consent was granted.`
-    );
-  }
+  const probe = await probeTenantName(tenantRef);
+  if ("error" in probe) throw new Error(probe.error);
 
-  addTenant(tenantId, displayName);
+  // The caller may have passed a domain ("contoso.onmicrosoft.com"), which
+  // authenticates perfectly well but is not the tenant's identity. Store the
+  // GUID the directory reports, so the same tenant added twice by two
+  // different names is still one row.
+  const tenantId = probe.tenantId || tenantRef;
+
+  addTenant(tenantId, probe.displayName, friendlyName);
   clients.delete(tenantId);
 
   const stored = getTenant(tenantId)!;
   return toTenantInfo(stored, stored.tenantId === activeTenantId);
+}
+
+/**
+ * Read the new tenant's directory name, retrying while the service principal
+ * propagates.
+ *
+ * Consent creates the enterprise application in the target tenant, but it is
+ * not immediately usable everywhere: a token request made in the seconds right
+ * after consent can still be refused as though the app did not exist. The
+ * consent callback runs exactly in that window, so a single attempt turns a
+ * successful consent into "could not query tenant" and the tenant is never
+ * added — with no way to retry but to consent again.
+ */
+async function probeTenantName(
+  tenantId: string
+): Promise<{ displayName: string; tenantId: string } | { error: string }> {
+  const delaysMs = [0, 2_000, 4_000, 8_000];
+  let last = "";
+
+  for (const delay of delaysMs) {
+    if (delay) await new Promise((r) => setTimeout(r, delay));
+    try {
+      const org = await buildClient(tenantId)
+        .api("/organization")
+        .select("displayName,id")
+        .get();
+      const row = org?.value?.[0];
+      return {
+        displayName: row?.displayName ? String(row.displayName) : tenantId,
+        tenantId: row?.id ? String(row.id) : tenantId,
+      };
+    } catch (err) {
+      last = err instanceof Error ? err.message : String(err);
+      // Only propagation-shaped failures are worth waiting on. A genuine
+      // misconfiguration will not fix itself, and retrying it just makes the
+      // user wait fourteen seconds for the same answer.
+      if (!isPropagationError(last)) break;
+    }
+  }
+
+  return {
+    error:
+      `Could not query tenant ${tenantId}: ${last}. ` +
+      `If consent was just granted, the enterprise application may still be propagating — ` +
+      `wait a moment and try connecting again. Otherwise verify the app registration is ` +
+      `multi-tenant and that admin consent completed.`,
+  };
+}
+
+function isPropagationError(message: string): boolean {
+  return /AADSTS700016|AADSTS900023|not found in the directory|was not found|does not exist/i.test(
+    message
+  );
 }
 
 /**
@@ -218,6 +324,96 @@ export function disconnectTenant(tenantId: string): {
     success: removed,
     message: removed ? "Tenant disconnected." : "Tenant not found.",
   };
+}
+
+/**
+ * Why a consent attempt would fail, read from our own app registration.
+ *
+ * Both of these errors are raised by Entra on its own sign-in page, before it
+ * will redirect anywhere — it refuses to send a browser to a redirect URI it
+ * has not validated. That means the consent callback never runs and cannot
+ * report them. The only place they can be explained is here, before the popup
+ * opens.
+ */
+export interface ConsentReadiness {
+  ready: boolean;
+  blockers: string[];
+  signInAudience?: string;
+}
+
+const READINESS_TTL_MS = 60_000;
+let readinessCache: { at: number; value: ConsentReadiness } | null = null;
+
+export async function checkConsentReadiness(): Promise<ConsentReadiness> {
+  if (readinessCache && Date.now() - readinessCache.at < READINESS_TTL_MS) {
+    return readinessCache.value;
+  }
+
+  const expectedRedirect = `${config.appBaseUrl}/api/tenants/consent-callback`;
+  const blockers: string[] = [];
+  let signInAudience: string | undefined;
+
+  try {
+    const home = buildClient(config.azureAd.tenantId);
+    const apps = await home
+      .api("/applications")
+      .filter(`appId eq '${config.azureAd.clientId}'`)
+      .select("signInAudience,web")
+      .get();
+    const app = apps?.value?.[0];
+
+    if (!app) {
+      console.warn(
+        "[consent] readiness check: app registration not visible to this token " +
+          "(Application.Read.All may not be granted)"
+      );
+      // Reading our own registration needs Application.Read.All. Without it we
+      // cannot tell ready from not-ready, and blocking on a check we could not
+      // run would be worse than letting the attempt proceed.
+      return cacheReadiness({ ready: true, blockers: [] });
+    }
+
+    signInAudience = String(app.signInAudience ?? "");
+    if (signInAudience === "AzureADMyOrg") {
+      blockers.push(
+        "The app registration is single-tenant (signInAudience: AzureADMyOrg), so it does not " +
+          "exist in any other directory and no enterprise application can be created there. " +
+          "Entra reports this as AADSTS700016. Fix: Entra admin centre → App registrations → " +
+          `${config.azureAd.clientId} → Authentication → Supported account types → ` +
+          '"Accounts in any organizational directory".'
+      );
+    }
+
+    const redirectUris: string[] = Array.isArray(app.web?.redirectUris)
+      ? app.web.redirectUris.map(String)
+      : [];
+    if (!redirectUris.some((u) => u.toLowerCase() === expectedRedirect.toLowerCase())) {
+      blockers.push(
+        `The consent callback "${expectedRedirect}" is not a registered redirect URI, so Entra ` +
+          "will refuse the redirect after the admin has already signed in (AADSTS50011). " +
+          "Fix: same registration → Authentication → Web → Redirect URIs → add that exact URL."
+      );
+    }
+  } catch (err) {
+    // A readiness check that cannot complete must not block a consent attempt
+    // that might well succeed — but it must say so, or a broken check is
+    // indistinguishable from a healthy registration.
+    console.warn(
+      "[consent] readiness check could not read the app registration:",
+      err instanceof Error ? err.message : String(err)
+    );
+    return cacheReadiness({ ready: true, blockers: [] });
+  }
+
+  return cacheReadiness({ ready: blockers.length === 0, blockers, signInAudience });
+}
+
+function cacheReadiness(value: ConsentReadiness): ConsentReadiness {
+  // Only a ready result is cached. Blockers are fixed in the Entra portal and
+  // the user retries straight afterwards — serving them a stale failure for up
+  // to a minute would look like the fix had not worked.
+  if (value.ready) readinessCache = { at: Date.now(), value };
+  return value;
 }
 
 /**

@@ -1047,7 +1047,7 @@ export const agentTools: ChatCompletionTool[] = [
     function: {
       name: "list_tenants",
       description:
-        "List all configured Intune tenants and show which one is currently active.",
+        "List all connected Intune tenants with their friendly names, directory names and IDs, and show which one is currently active. Use this when the user asks which tenants are connected, or before switching if you are unsure what a name they used refers to.",
       parameters: {
         type: "object",
         properties: {},
@@ -1060,16 +1060,17 @@ export const agentTools: ChatCompletionTool[] = [
     function: {
       name: "switch_tenant",
       description:
-        "Switch the active tenant for subsequent Graph API queries. All tools will operate against the selected tenant.",
+        "Switch the active tenant for subsequent Graph API queries. All later tools operate against the selected tenant until it is switched again. Use this whenever the user asks a question about a named tenant — for example 'how many devices in Mauvlan?' — then run the query. The tenant can be named the way the user named it; it does not have to be a GUID.",
       parameters: {
         type: "object",
         properties: {
-          tenantId: {
+          tenant: {
             type: "string",
-            description: "The tenant ID to switch to. Use list_tenants to see available tenants.",
+            description:
+              "The tenant to switch to: its friendly name, its directory name, or its tenant ID. Pass whatever the user said.",
           },
         },
-        required: ["tenantId"],
+        required: ["tenant"],
       },
     },
   },
@@ -1943,6 +1944,97 @@ export const agentTools: ChatCompletionTool[] = [
           },
         },
         required: ["deviceNames"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_configmgr_collection_members",
+      description:
+        "List the devices that are members of a Configuration Manager collection. Use this for 'which devices are in collection X' or to see who a deployment targets.",
+      parameters: {
+        type: "object",
+        properties: {
+          collectionId: {
+            type: "string",
+            description: "Collection ID, e.g. 'SMS00001' or 'DMO00012'.",
+          },
+          top: { type: "number", description: "Maximum devices to return (default 100)." },
+        },
+        required: ["collectionId"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_configmgr_deployment_status",
+      description:
+        "Per-device status for a ConfigMgr deployment, including error codes with their documented meaning and remediation where the code is recognised. Use this to answer 'why are there N errors on this deployment' or 'which devices failed and how do I fix them'. Returns failures by default; set includeAll for the full breakdown. A row with errorRecognised=false means the code is genuinely unknown — say so rather than guessing what it means.",
+      parameters: {
+        type: "object",
+        properties: {
+          deploymentId: {
+            type: "string",
+            description: "The deployment's assignment ID, e.g. '20001'.",
+          },
+          includeAll: {
+            type: "boolean",
+            description: "Include successful and in-progress devices, not just failures.",
+          },
+          top: { type: "number", description: "Maximum rows to return (default 100)." },
+        },
+        required: ["deploymentId"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "install_configmgr_client",
+      description:
+        "DESTRUCTIVE — Install the Configuration Manager client (agent) on a device via client push. Requires the AdminService connector and a confirmation token. Before asking the user to confirm, state plainly that a client push CANNOT BE CANCELLED and that Configuration Manager retries failures for up to seven days. Success means the site accepted the request, NOT that the client installed; completion is confirmed in ccmsetup.log on the device. The device must already be a discovered resource. Refuses a device that already has a client unless forceReinstall is set, and refuses domain controllers.",
+      parameters: {
+        type: "object",
+        properties: {
+          deviceName: { type: "string", description: "ConfigMgr device name to install the client on." },
+          forceReinstall: {
+            type: "boolean",
+            description: "Reinstall even if a client is already present. Only set when the user explicitly asks.",
+          },
+        },
+        required: ["deviceName"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_configmgr_device_card",
+      description:
+        "The Configuration Manager record for one device: OS, client version and health, AD site, network addresses, last logon, and the collections it belongs to. Use this for 'tell me about ConfigMgr device X'. A device with an aadDeviceId is Entra-joined and may also exist in Intune.",
+      parameters: {
+        type: "object",
+        properties: {
+          deviceName: { type: "string", description: "ConfigMgr device name, e.g. 'MVN-MECM'." },
+        },
+        required: ["deviceName"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_configmgr_application_detail",
+      description:
+        "Detail for one Configuration Manager application: description, version, publisher, deployment count, devices with the app and devices with failures.",
+      parameters: {
+        type: "object",
+        properties: {
+          ciId: { type: "string", description: "The application's CI_ID, e.g. '16801'." },
+        },
+        required: ["ciId"],
       },
     },
   },

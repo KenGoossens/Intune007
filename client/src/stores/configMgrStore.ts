@@ -5,6 +5,10 @@ import type {
   ConfigMgrCollectionInfo,
   ConfigMgrDeploymentInfo,
   ConfigMgrApplicationInfo,
+  ConfigMgrApplicationDetail,
+  ConfigMgrCollectionMember,
+  ConfigMgrDeploymentStatusRow,
+  ConfigMgrDeviceCard,
 } from "@intune-agent/shared";
 
 type SiteResource = "collections" | "deployments" | "applications";
@@ -55,6 +59,31 @@ interface ConfigMgrState {
   fetchConnection: () => Promise<void>;
   fetchSite: (resource: SiteResource) => Promise<void>;
 
+  // Drill-down detail (lazily fetched when a row is expanded)
+  detailKey: string | null;
+  detailLoading: boolean;
+  detailError: string | null;
+  collectionMembers: ConfigMgrCollectionMember[];
+  deploymentStatus: ConfigMgrDeploymentStatusRow[];
+  applicationDetail: ConfigMgrApplicationDetail | null;
+  fetchCollectionMembers: (collectionId: string) => Promise<void>;
+  fetchDeploymentStatus: (deploymentId: string) => Promise<void>;
+  fetchApplicationDetail: (ciId: string) => Promise<void>;
+  clearDetail: () => void;
+
+  // ConfigMgr context for one device (ConfigMgr devices are only in Intune when co-managed)
+  deviceDetailName: string | null;
+  deviceDetailLoading: boolean;
+  deviceDetailError: string | null;
+  deviceCard: ConfigMgrDeviceCard | null;
+  toggleDeviceDetail: (deviceName: string) => Promise<void>;
+
+  // Demo mode (simulated site data; a real connection always takes precedence)
+  demoMode: boolean;
+  demoSimulating: boolean;
+  fetchDemoMode: () => Promise<void>;
+  setDemoMode: (enabled: boolean) => Promise<void>;
+
   // Connection wizard
   connectionConfig: ConfigMgrConnectionConfig | null;
   fetchConnectionConfig: () => Promise<void>;
@@ -76,7 +105,7 @@ interface ConfigMgrState {
   ) => Promise<{ ok: boolean; error?: string; message?: string }>;
 }
 
-export const useConfigMgrStore = create<ConfigMgrState>((set) => ({
+export const useConfigMgrStore = create<ConfigMgrState>((set, get) => ({
   summary: null,
   isLoading: false,
   error: null,
@@ -150,6 +179,123 @@ export const useConfigMgrStore = create<ConfigMgrState>((set) => ({
     } finally {
       set((s) => ({ siteLoading: { ...s.siteLoading, [resource]: false } }));
     }
+  },
+
+  detailKey: null,
+  detailLoading: false,
+  detailError: null,
+  collectionMembers: [],
+  deploymentStatus: [],
+  applicationDetail: null,
+
+  deviceDetailName: null,
+  deviceDetailLoading: false,
+  deviceDetailError: null,
+  deviceCard: null,
+
+  toggleDeviceDetail: async (deviceName) => {
+    if (get().deviceDetailName === deviceName) {
+      set({ deviceDetailName: null, deviceDetailError: null, deviceCard: null });
+      return;
+    }
+    set({
+      deviceDetailName: deviceName,
+      deviceDetailLoading: true,
+      deviceDetailError: null,
+      deviceCard: null,
+    });
+    try {
+      const res = await fetch(`/api/configmgr/devices/${encodeURIComponent(deviceName)}`);
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      set({ deviceCard: data.items?.[0] ?? null });
+    } catch (err) {
+      set({
+        deviceDetailError:
+          err instanceof Error ? err.message : "Failed to load the ConfigMgr device record",
+      });
+    } finally {
+      set({ deviceDetailLoading: false });
+    }
+  },
+
+  clearDetail: () =>
+    set({
+      detailKey: null,
+      detailError: null,
+      collectionMembers: [],
+      deploymentStatus: [],
+      applicationDetail: null,
+      deviceDetailName: null,
+      deviceCard: null,
+      deviceDetailError: null,
+    }),
+
+  fetchCollectionMembers: async (collectionId) => {
+    set({ detailKey: `collection:${collectionId}`, detailLoading: true, detailError: null, collectionMembers: [] });
+    try {
+      const res = await fetch(`/api/configmgr/collections/${encodeURIComponent(collectionId)}/members`);
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      set({ collectionMembers: data.items ?? [] });
+    } catch (err) {
+      set({ detailError: err instanceof Error ? err.message : "Failed to load members" });
+    } finally {
+      set({ detailLoading: false });
+    }
+  },
+
+  fetchDeploymentStatus: async (deploymentId) => {
+    set({ detailKey: `deployment:${deploymentId}`, detailLoading: true, detailError: null, deploymentStatus: [] });
+    try {
+      const res = await fetch(`/api/configmgr/deployments/${encodeURIComponent(deploymentId)}/status?all=1`);
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      set({ deploymentStatus: data.items ?? [] });
+    } catch (err) {
+      set({ detailError: err instanceof Error ? err.message : "Failed to load deployment status" });
+    } finally {
+      set({ detailLoading: false });
+    }
+  },
+
+  fetchApplicationDetail: async (ciId) => {
+    set({ detailKey: `application:${ciId}`, detailLoading: true, detailError: null, applicationDetail: null });
+    try {
+      const res = await fetch(`/api/configmgr/applications/${encodeURIComponent(ciId)}`);
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      set({ applicationDetail: data.items?.[0] ?? null });
+    } catch (err) {
+      set({ detailError: err instanceof Error ? err.message : "Failed to load application detail" });
+    } finally {
+      set({ detailLoading: false });
+    }
+  },
+
+  demoMode: false,
+  demoSimulating: false,
+
+  fetchDemoMode: async () => {
+    try {
+      const res = await fetch("/api/configmgr/demo-mode");
+      const data = (await res.json()) as { enabled: boolean; simulating: boolean };
+      set({ demoMode: data.enabled, demoSimulating: data.simulating });
+    } catch {
+      /* ignore — the toggle just shows its last known state */
+    }
+  },
+
+  setDemoMode: async (enabled) => {
+    const res = await fetch("/api/configmgr/demo-mode", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled }),
+    });
+    const data = (await res.json()) as { enabled: boolean; simulating: boolean };
+    set({ demoMode: data.enabled, demoSimulating: data.simulating });
+    // Site data comes from a different source now, so refresh what's shown.
+    await get().fetchConnection();
   },
 
   connectionConfig: null,

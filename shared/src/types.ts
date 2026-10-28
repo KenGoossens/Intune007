@@ -2,7 +2,10 @@
 
 export interface TenantInfo {
   tenantId: string;
+  /** The directory's own name, as Graph reports it. */
   displayName: string;
+  /** An operator-chosen name, used to address this tenant in a prompt. */
+  friendlyName?: string;
   addedAt: string;
   lastUsedAt: string | null;
   isActive: boolean;
@@ -290,7 +293,12 @@ export type DataPanelType =
   | "configmgr_device_count"
   | "configmgr_device_collections"
   | "configmgr_collection_member"
-  | "configmgr_machine_entry";
+  | "configmgr_machine_entry"
+  | "configmgr_collection_members"
+  | "configmgr_deployment_status"
+  | "configmgr_application_detail"
+  | "configmgr_device_card"
+  | "configmgr_client_push";
 
 export interface DataPanel {
   id: string;
@@ -399,6 +407,11 @@ export const TOOL_TO_PANEL_TYPE: Record<string, DataPanelType> = {
   get_configmgr_device_collections: "configmgr_device_collections",
   add_configmgr_collection_member: "configmgr_collection_member",
   import_configmgr_machine_entry: "configmgr_machine_entry",
+  get_configmgr_collection_members: "configmgr_collection_members",
+  get_configmgr_deployment_status: "configmgr_deployment_status",
+  get_configmgr_application_detail: "configmgr_application_detail",
+  get_configmgr_device_card: "configmgr_device_card",
+  install_configmgr_client: "configmgr_client_push",
 };
 
 export const TOOL_TO_PANEL_TITLE: Record<string, string> = {
@@ -496,6 +509,11 @@ export const TOOL_TO_PANEL_TITLE: Record<string, string> = {
   get_configmgr_device_collections: "ConfigMgr Collection Membership",
   add_configmgr_collection_member: "ConfigMgr Direct Membership Added",
   import_configmgr_machine_entry: "ConfigMgr Prestaged Computer",
+  get_configmgr_collection_members: "ConfigMgr Collection Members",
+  get_configmgr_deployment_status: "ConfigMgr Deployment Status",
+  get_configmgr_application_detail: "ConfigMgr Application Detail",
+  get_configmgr_device_card: "ConfigMgr Device",
+  install_configmgr_client: "ConfigMgr Client Push",
 };
 
 /**
@@ -574,6 +592,9 @@ export const PANEL_TO_TOOLS: Record<string, string[]> = {
     "trigger_configmgr_client_action", "run_cmpivot_query",
     "get_configmgr_device_count", "get_configmgr_device_collections",
     "add_configmgr_collection_member", "import_configmgr_machine_entry",
+    "get_configmgr_collection_members", "get_configmgr_deployment_status",
+    "get_configmgr_application_detail", "get_configmgr_device_card",
+    "install_configmgr_client",
   ],
 };
 
@@ -699,6 +720,8 @@ export interface ConfigMgrConnectionStatus {
   siteName?: string;
   version?: string;
   error?: string;
+  /** True when this data is simulated by demo mode rather than read from a site. */
+  simulated?: boolean;
 }
 
 /** A ConfigMgr collection (SMS_Collection). */
@@ -714,6 +737,8 @@ export interface ConfigMgrCollectionInfo {
 /** A ConfigMgr deployment summary (SMS_DeploymentSummary). */
 export interface ConfigMgrDeploymentInfo {
   deploymentId: string;
+  /** Numeric assignment ID — the per-device status classes key on this, not DeploymentID. */
+  assignmentId: number;
   softwareName: string;
   collectionName: string;
   intent: string;
@@ -726,6 +751,79 @@ export interface ConfigMgrDeploymentInfo {
 }
 
 /** A ConfigMgr application (SMS_Application, latest revision). */
+/** A device that is a member of a ConfigMgr collection. */
+export interface ConfigMgrCollectionMember {
+  resourceId: number;
+  name: string;
+  isActive: boolean;
+  isClient: boolean;
+  clientVersion: string;
+  siteCode: string;
+  domain: string;
+  deviceCategory: string;
+}
+
+/** Per-device status for one ConfigMgr deployment. */
+export interface ConfigMgrDeploymentStatusRow {
+  machineName: string;
+  resourceId: number;
+  /** Success | In progress | Requirements not met | Unknown | Error */
+  status: string;
+  enforcementState?: string;
+  /** Canonical hex form of the error code, when one was reported. */
+  errorCode?: string;
+  /** How Microsoft documents the code (MSI/Windows codes are decimals). */
+  errorDocumentedAs?: string;
+  /** False means the code is genuinely unrecognised, never a guessed meaning. */
+  errorRecognised?: boolean;
+  errorMeaning?: string;
+  errorRemediation?: string;
+  errorSource?: string;
+}
+
+/** A ConfigMgr device record, the ConfigMgr equivalent of the Intune device card. */
+export interface ConfigMgrDeviceCard {
+  resourceId: number;
+  name: string;
+  netbiosName: string;
+  domain: string;
+  operatingSystem: string;
+  build: string;
+  clientVersion: string;
+  isClient: boolean;
+  isActive: boolean;
+  isObsolete: boolean;
+  isVirtualMachine: boolean;
+  adSiteName: string;
+  ipAddresses: string[];
+  macAddresses: string[];
+  lastLogon: string;
+  createdDate: string;
+  cpuType: string;
+  smBiosGuid: string;
+  distinguishedName: string;
+  assignedSites: string[];
+  /** Site system roles, e.g. "Domain Controller" — client push treats a DC specially. */
+  systemRoles: string[];
+  /** Present when the device is Entra-joined. */
+  aadDeviceId?: string;
+  /** The Entra tenant the device is joined to, which may not be the connected one. */
+  aadTenantId?: string;
+  /** True only when that tenant is the one this app is connected to — i.e. an Intune lookup can succeed. */
+  inConnectedIntuneTenant?: boolean;
+  collections: { collectionId: string; name: string }[];
+}
+
+/** Detail for a single ConfigMgr application. */
+export interface ConfigMgrApplicationDetail extends ConfigMgrApplicationInfo {
+  description?: string;
+  dateLastModified?: string;
+  createdBy?: string;
+  isEnabled?: boolean;
+  isSuperseded?: boolean;
+  numberOfDevicesWithFailure?: number;
+}
+
 export interface ConfigMgrApplicationInfo {
   ciId: string;
   name: string;

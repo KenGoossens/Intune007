@@ -2,13 +2,19 @@ import https from "node:https";
 import { ClientSecretCredential } from "@azure/identity";
 import { config } from "../config.js";
 import { sanitizeErrorMessage } from "../security.js";
-import { getStoredConnection } from "./connectionStore.js";
+import { getStoredConnection, getDemoMode } from "./connectionStore.js";
+import { DEMO_ADMIN_SERVICE_URL, isDemoHost, demoResponse } from "./demoFixtures.js";
 import type {
   ConfigMgrApplicationInfo,
+  ConfigMgrApplicationDetail,
   ConfigMgrCollectionInfo,
+  ConfigMgrCollectionMember,
   ConfigMgrConnectionStatus,
   ConfigMgrDeploymentInfo,
+  ConfigMgrDeploymentStatusRow,
+  ConfigMgrDeviceCard,
 } from "@intune-agent/shared";
+import { explainDeploymentError } from "./configmgrErrors.js";
 
 /**
  * Connector for the Configuration Manager AdminService REST API.
@@ -68,7 +74,28 @@ export function resolveConfig(
   if (override && override.adminServiceUrl) return withCredFallback(override);
   const stored = getStoredConnection();
   if (stored) return withCredFallback(stored);
+  if (config.configMgr.adminServiceUrl) return withCredFallback(config.configMgr);
+
+  // Demo mode is the LAST fallback, so a real connection always wins by
+  // construction rather than by a condition that could be got wrong later.
+  if (getDemoMode()) {
+    return {
+      adminServiceUrl: DEMO_ADMIN_SERVICE_URL,
+      authMode: "none",
+      resource: "",
+      tenantId: "",
+      clientId: "",
+      clientSecret: "",
+      bearerToken: "",
+      allowInsecureTls: false,
+    };
+  }
   return withCredFallback(config.configMgr);
+}
+
+/** True when ConfigMgr data is being simulated rather than read from a site. */
+export function isConfigMgrSimulated(): boolean {
+  return resolveConfig().adminServiceUrl === DEMO_ADMIN_SERVICE_URL;
 }
 
 /** True when an AdminService base URL is configured (via UI store or env). */
@@ -159,6 +186,16 @@ function httpsJsonRequest(
     }
     if (u.protocol !== "https:") {
       return reject(new Error("The AdminService URL must use HTTPS."));
+    }
+
+    // Demo mode: answer from fixtures instead of opening a socket. Everything
+    // above this line — URL building, method paths, bodies — already ran.
+    if (isDemoHost(fullUrl)) {
+      try {
+        return resolve(demoResponse(method, fullUrl, body));
+      } catch (err) {
+        return reject(err instanceof Error ? err : new Error(String(err)));
+      }
     }
 
     const payload = body !== undefined ? Buffer.from(JSON.stringify(body)) : undefined;
@@ -324,6 +361,7 @@ export async function getDeployments(options?: {
   });
   return rows.map((r) => ({
     deploymentId: String(r.DeploymentID ?? ""),
+    assignmentId: num(r.AssignmentID),
     softwareName: String(r.SoftwareName ?? ""),
     collectionName: String(r.CollectionName ?? ""),
     intent: intentLabel(r.DeploymentIntent),
@@ -389,6 +427,7 @@ export async function getConfigMgrConnectionStatus(
       siteCode: site.SiteCode ? String(site.SiteCode) : undefined,
       siteName: site.SiteName ? String(site.SiteName) : undefined,
       version: site.Version ? String(site.Version) : undefined,
+      simulated: isConfigMgrSimulated() || undefined,
     };
   } catch (err) {
     return {
@@ -519,6 +558,19 @@ export function wmiInstanceMethodPath(
   return `wmi/${className}('${String(key).replace(/'/g, "''")}')/AdminService.${method}`;
 }
 
+/**
+ * Invoke a WMI action by path, e.g. "SMS_Collection.CreateCCR".
+ * Thin wrapper so callers outside this module can reach the action routes
+ * without re-implementing auth, the base URL or the demo interception.
+ */
+export async function postWmiAction(
+  actionPath: string,
+  body: Record<string, unknown>
+): Promise<Record<string, unknown>> {
+  const cm = requireConnected();
+  return adminPost<Record<string, unknown>>(cm, `wmi/${actionPath}`, body);
+}
+
 /** OData discriminator for the derived direct-membership rule type. */
 export const SMS_COLLECTION_RULE_DIRECT_TYPE = "#AdminService.SMS_CollectionRuleDirect";
 
@@ -550,8 +602,17 @@ async function resolveResourceId(
     top: 1,
   });
   if (found.length === 0) return null;
-  const id = num(found[0].ResourceID);
+  const id = resourceIdOf(found[0]);
   return id > 0 ? id : null;
+}
+
+/**
+ * ResourceID's casing varies: the SMS Provider returns "ResourceID" for an
+ * unfiltered read but "ResourceId" when $select names it. Accept both — reading
+ * only one silently yields 0 and looks like "device not found".
+ */
+function resourceIdOf(row: Record<string, unknown>): number {
+  return num(row.ResourceID ?? row.ResourceId);
 }
 
 function requireConnected(): EffectiveConfigMgrConfig {
@@ -640,10 +701,14 @@ export async function getDeviceCollections(
       const rows = Array.isArray(json.value) ? (json.value as Record<string, unknown>[]) : [];
       const collections = rows
         .map((r) => (r.Collection ?? r) as Record<string, unknown>)
-        .filter((c) => c && (c.CollectionID || c.Name))
+        .filter((c) => c && (c.SiteID || c.CollectionID || c.CollectionName || c.Name))
         .map((c) => ({
-          collectionId: String(c.CollectionID ?? ""),
-          name: String(c.Name ?? c.CollectionName ?? ""),
+          // On the v1.0 route the admin-facing ID ("SMS00001") is SiteID;
+          // CollectionID there is an internal numeric surrogate. The wmi route
+          // and the demo fixtures use CollectionID for the real value, hence
+          // the fallback.
+          collectionId: String(c.SiteID ?? c.CollectionID ?? ""),
+          name: String(c.CollectionName ?? c.Name ?? ""),
         }));
       results.push({ deviceName, resourceId, found: true, collections });
     } catch (err: unknown) {
@@ -675,6 +740,7 @@ export async function addCollectionDirectMember(input: {
   resourceId: number;
   ruleName: string;
   returnValue: number;
+  simulated?: boolean;
 }> {
   const cm = requireConnected();
   const collectionId = String(input.collectionId || "").trim();
@@ -715,7 +781,272 @@ export async function addCollectionDirectMember(input: {
       `ConfigMgr rejected the membership rule (return value ${returnValue}).`
     );
   }
-  return { collectionId, resourceId, ruleName, returnValue };
+  return {
+    collectionId,
+    resourceId,
+    ruleName,
+    returnValue,
+    simulated: isConfigMgrSimulated() || undefined,
+  };
+}
+
+// ─── Drill-down detail (read) ────────────────────────────────────
+
+/** StatusType / AppStatusType, per the SMS_AppDeploymentAssetDetails docs. */
+function deploymentStatusLabel(v: unknown): string {
+  switch (num(v)) {
+    case 1:
+      return "Success";
+    case 2:
+      return "In progress";
+    case 3:
+      return "Requirements not met";
+    case 5:
+      return "Error";
+    default:
+      return "Unknown";
+  }
+}
+
+/** EnforcementState, per the same documentation (0–14). */
+const ENFORCEMENT_STATES: Record<number, string> = {
+  0: "Unknown",
+  1: "Enforcement started",
+  2: "Waiting for content",
+  3: "Waiting for another installation",
+  4: "Waiting for maintenance window",
+  5: "Restart required before installing",
+  6: "General failure",
+  7: "Pending installation",
+  8: "Installing update",
+  9: "Pending system restart",
+  10: "Successfully installed update",
+  11: "Failed to install update",
+  12: "Downloading update",
+  13: "Downloaded update",
+  14: "Failed to download update",
+};
+
+/**
+ * Devices that are members of a collection.
+ *
+ * SMS_FullCollectionMembership carries no OS property, so the shape stays to
+ * what the class documents.
+ */
+export async function getCollectionMembers(
+  collectionId: string,
+  options?: { top?: number }
+): Promise<ConfigMgrCollectionMember[]> {
+  const cm = requireConnected();
+  const id = String(collectionId || "").trim();
+  if (!id) throw new Error("A collectionId is required.");
+
+  const rows = await adminGet<Record<string, unknown>>(
+    cm,
+    "wmi/SMS_FullCollectionMembership",
+    {
+      filter: `CollectionID eq '${id.replace(/'/g, "''")}'`,
+      // No $select and no $orderby on this class: the SMS Provider answers 404
+      // for an $orderby, and for a $select naming ClientVersion (a lazy
+      // property). Verified against a live site; the full record is returned
+      // instead and sorted below.
+      top: options?.top ?? DEFAULT_TOP,
+    }
+  );
+
+  rows.sort((a, b) => String(a.Name ?? "").localeCompare(String(b.Name ?? "")));
+
+  return rows.map((r) => ({
+    resourceId: resourceIdOf(r),
+    name: String(r.Name ?? ""),
+    isActive: r.IsActive === true || r.IsActive === 1,
+    isClient: r.IsClient === true || r.IsClient === 1,
+    clientVersion: String(r.ClientVersion ?? ""),
+    siteCode: String(r.SiteCode ?? ""),
+    domain: String(r.Domain ?? ""),
+    deviceCategory: String(r.DeviceCategory ?? ""),
+  }));
+}
+
+const DEVICE_CARD_SELECT = [
+  "ResourceID", "Name", "NetbiosName", "FullDomainName", "OperatingSystemNameandVersion",
+  "Build", "ClientVersion", "Client", "Active", "Obsolete", "IsVirtualMachine",
+  "ADSiteName", "IPAddresses", "MACAddresses", "LastLogonTimestamp", "CreationDate",
+  "CPUType", "SMBIOSGUID", "DistinguishedName", "SMSAssignedSites", "AADDeviceID", "AADTenantID",
+  "SystemRoles",
+].join(",");
+
+function strArray(v: unknown): string[] {
+  if (Array.isArray(v)) return v.map((x) => String(x)).filter(Boolean);
+  if (v === null || v === undefined || v === "") return [];
+  return [String(v)];
+}
+
+/**
+ * The ConfigMgr record for one device — the ConfigMgr equivalent of the Intune
+ * device card, including the collections it belongs to.
+ *
+ * `aadDeviceId` is populated for Entra-joined devices, which is what tells the
+ * UI whether an Intune device card would resolve for this machine at all.
+ */
+export async function getConfigMgrDeviceCard(
+  deviceName: string
+): Promise<ConfigMgrDeviceCard | null> {
+  const cm = requireConnected();
+  const name = String(deviceName || "").trim();
+  if (!name) throw new Error("A device name is required.");
+
+  const rows = await adminGet<Record<string, unknown>>(cm, "wmi/SMS_R_System", {
+    filter: `Name eq '${name.replace(/'/g, "''")}'`,
+    select: DEVICE_CARD_SELECT,
+    top: 1,
+  });
+  const r = rows[0];
+  if (!r) return null;
+
+  const resourceId = resourceIdOf(r);
+
+  let collections: { collectionId: string; name: string }[] = [];
+  try {
+    const membership = await getDeviceCollections([name]);
+    collections = membership[0]?.collections ?? [];
+  } catch {
+    // Membership is supplementary — a failure there must not lose the card.
+  }
+
+  return {
+    resourceId,
+    name: String(r.Name ?? name),
+    netbiosName: String(r.NetbiosName ?? ""),
+    domain: String(r.FullDomainName ?? ""),
+    operatingSystem: String(r.OperatingSystemNameandVersion ?? ""),
+    build: String(r.Build ?? ""),
+    clientVersion: String(r.ClientVersion ?? ""),
+    isClient: r.Client === 1 || r.Client === true,
+    isActive: r.Active === 1 || r.Active === true,
+    isObsolete: r.Obsolete === 1 || r.Obsolete === true,
+    isVirtualMachine: r.IsVirtualMachine === true || r.IsVirtualMachine === 1,
+    adSiteName: String(r.ADSiteName ?? ""),
+    ipAddresses: strArray(r.IPAddresses),
+    macAddresses: strArray(r.MACAddresses),
+    lastLogon: String(r.LastLogonTimestamp ?? ""),
+    createdDate: String(r.CreationDate ?? ""),
+    cpuType: String(r.CPUType ?? ""),
+    smBiosGuid: String(r.SMBIOSGUID ?? ""),
+    distinguishedName: String(r.DistinguishedName ?? ""),
+    assignedSites: strArray(r.SMSAssignedSites),
+    systemRoles: strArray(r.SystemRoles),
+    aadDeviceId: r.AADDeviceID ? String(r.AADDeviceID) : undefined,
+    aadTenantId: r.AADTenantID ? String(r.AADTenantID) : undefined,
+    // Entra-joined is not the same as "in the Intune tenant this app talks to":
+    // a ConfigMgr estate can be joined to a different tenant entirely, and the
+    // Intune device card would then never resolve.
+    inConnectedIntuneTenant:
+      Boolean(r.AADTenantID) &&
+      String(r.AADTenantID).toLowerCase() === String(config.azureAd.tenantId ?? "").toLowerCase(),
+    collections,
+  };
+}
+
+/**
+ * Per-device status for one application deployment.
+ *
+ * Only SMS_AppDeploymentErrorAssetDetails carries ErrorCode, so failures are
+ * read from there; `errorsOnly: false` additionally reads the full asset list
+ * for the other states. Neither class carries a description string, so the
+ * readable text comes entirely from the verified error table.
+ */
+export async function getDeploymentStatus(
+  assignmentId: string | number,
+  options?: { top?: number; errorsOnly?: boolean }
+): Promise<ConfigMgrDeploymentStatusRow[]> {
+  const cm = requireConnected();
+  const id = num(assignmentId);
+  if (!id) throw new Error("A numeric deployment (assignment) ID is required.");
+  const top = options?.top ?? DEFAULT_TOP;
+
+  const mapRow = (r: Record<string, unknown>): ConfigMgrDeploymentStatusRow => {
+    const row: ConfigMgrDeploymentStatusRow = {
+      machineName: String(r.MachineName ?? ""),
+      resourceId: num(r.MachineID),
+      status: deploymentStatusLabel(r.StatusType ?? r.AppStatusType),
+    };
+    if (r.EnforcementState !== undefined) {
+      row.enforcementState = ENFORCEMENT_STATES[num(r.EnforcementState)] ?? "Unknown";
+    }
+    if (r.ErrorCode !== undefined && num(r.ErrorCode) !== 0) {
+      const explained = explainDeploymentError(r.ErrorCode);
+      row.errorCode = explained.code ?? undefined;
+      row.errorRecognised = explained.recognised;
+      row.errorDocumentedAs = explained.documentedAs;
+      row.errorMeaning = explained.meaning;
+      row.errorRemediation = explained.remediation;
+      row.errorSource = explained.source;
+    }
+    return row;
+  };
+
+  const errors = await adminGet<Record<string, unknown>>(
+    cm,
+    "wmi/SMS_AppDeploymentErrorAssetDetails",
+    { filter: `AssignmentID eq ${id}`, top }
+  );
+  const rows = errors.map(mapRow);
+
+  if (options?.errorsOnly === false) {
+    const all = await adminGet<Record<string, unknown>>(
+      cm,
+      "wmi/SMS_AppDeploymentAssetDetails",
+      { filter: `AssignmentID eq ${id}`, top }
+    );
+    const seen = new Set(rows.map((r) => r.machineName.toLowerCase()));
+    for (const r of all) {
+      const mapped = mapRow(r);
+      if (!seen.has(mapped.machineName.toLowerCase())) rows.push(mapped);
+    }
+  }
+
+  return rows;
+}
+
+/**
+ * Detail for one application. No $select: the extra properties vary by site
+ * version, and selecting one that does not exist fails the whole request.
+ */
+export async function getApplicationDetail(
+  ciId: string | number
+): Promise<ConfigMgrApplicationDetail | null> {
+  const cm = requireConnected();
+  const id = num(ciId);
+  if (!id) throw new Error("A numeric application CI_ID is required.");
+
+  const rows = await adminGet<Record<string, unknown>>(cm, "wmi/SMS_Application", {
+    filter: `CI_ID eq ${id}`,
+    top: 1,
+  });
+  const r = rows[0];
+  if (!r) return null;
+
+  return {
+    ciId: String(r.CI_ID ?? id),
+    name: String(r.LocalizedDisplayName ?? ""),
+    manufacturer: String(r.Manufacturer ?? ""),
+    version: String(r.SoftwareVersion ?? ""),
+    numberOfDeployments: num(r.NumberOfDeployments),
+    numberOfDevicesWithApp: num(r.NumberOfDevicesWithApp),
+    isDeployed: r.IsDeployed === true || r.IsDeployed === 1,
+    dateCreated: String(r.DateCreated ?? ""),
+    description: r.LocalizedDescription ? String(r.LocalizedDescription) : undefined,
+    dateLastModified: r.DateLastModified ? String(r.DateLastModified) : undefined,
+    createdBy: r.CreatedBy ? String(r.CreatedBy) : undefined,
+    isEnabled: r.IsEnabled === undefined ? undefined : r.IsEnabled === true || r.IsEnabled === 1,
+    isSuperseded:
+      r.IsSuperseded === undefined ? undefined : r.IsSuperseded === true || r.IsSuperseded === 1,
+    numberOfDevicesWithFailure:
+      r.NumberOfDeviceswithFailure === undefined
+        ? undefined
+        : num(r.NumberOfDeviceswithFailure),
+  };
 }
 
 // ─── OSD prestaging (write) ──────────────────────────────────────
@@ -741,6 +1072,7 @@ export async function importMachineEntry(input: {
   machineExists: boolean;
   resourceId: number;
   smsUniqueIdentifier: string;
+  simulated?: boolean;
 }> {
   const cm = requireConnected();
   const netbiosName = String(input.netbiosName || "").trim();
@@ -777,6 +1109,7 @@ export async function importMachineEntry(input: {
     machineExists: response.MachineExists === true,
     resourceId: num(response.ResourceID),
     smsUniqueIdentifier: String(response.SMSUniqueIdentifier ?? ""),
+    simulated: isConfigMgrSimulated() || undefined,
   };
 }
 

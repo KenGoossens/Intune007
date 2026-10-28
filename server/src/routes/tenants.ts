@@ -22,7 +22,10 @@ import {
   disconnectTenant,
   getActiveTenantId,
   buildAdminConsentUrl,
+  checkConsentReadiness,
+  renameTenant,
 } from "../graph/tenantManager.js";
+import { isCacheWarm, fullSync } from "../cache/deviceCache.js";
 import { isValidUUID, sanitizeErrorMessage } from "../security.js";
 
 const router = Router();
@@ -31,6 +34,8 @@ const router = Router();
 // Map of state -> { createdAt, requestedTenantId? }. TTL: 10 minutes.
 
 interface ConsentState {
+  /** Chosen before the popup opened; applied when consent comes back. */
+  friendlyName?: string;
   createdAt: number;
   requestedTenantId?: string;
 }
@@ -74,6 +79,20 @@ router.post("/active", (req, res) => {
   if (!result.success) {
     return res.status(404).json(result);
   }
+
+  // The device cache is per-tenant, so a tenant that has never been active has
+  // an empty one. Reads fall back to live Graph and stay correct, but an exact
+  // count has nothing to count and simply refuses. Warm it in the background so
+  // switching tenants does not leave the next question unanswerable.
+  if (!isCacheWarm()) {
+    void fullSync().catch((err: unknown) => {
+      console.warn(
+        "[tenants] background cache warm failed:",
+        err instanceof Error ? err.message : String(err)
+      );
+    });
+  }
+
   res.json(result);
 });
 
@@ -91,12 +110,66 @@ router.delete("/:tenantId", (req, res) => {
 });
 
 /**
+ * POST /api/tenants — register a tenant that has already granted consent.
+ *
+ * Consent and registration are two separate things: the admin grants consent
+ * in Entra, and this app only learns about it when the popup redirects back.
+ * Anything that interrupts that round-trip — a closed popup, a blocked
+ * redirect, a server restart that loses the state token — throws away a
+ * consent that actually succeeded, with no way to retry but to consent again.
+ *
+ * This is the recovery path. It proves consent by acquiring a token and
+ * reading the directory, which is the same evidence the callback relies on,
+ * so it cannot register a tenant that has not really consented.
+ */
+router.post("/", async (req, res) => {
+  const raw = String((req.body ?? {}).tenantId ?? "").trim();
+  // A domain is accepted as well as a GUID; the directory tells us the real ID.
+  if (!isValidUUID(raw) && !/^[\w.-]+\.[\w.-]+$/.test(raw)) {
+    return res.status(400).json({ error: "Provide a tenant ID (GUID) or a domain." });
+  }
+  const friendlyName =
+    typeof (req.body ?? {}).friendlyName === "string"
+      ? String((req.body as { friendlyName: string }).friendlyName).trim().slice(0, 64)
+      : "";
+
+  try {
+    const tenant = await registerTenant(raw, friendlyName || null);
+    res.json(tenant);
+  } catch (err) {
+    res.status(400).json({
+      error: sanitizeErrorMessage(err instanceof Error ? err.message : String(err)),
+    });
+  }
+});
+
+/**
+ * PATCH /api/tenants/:tenantId — set or clear the operator-chosen name.
+ *
+ * The name is how a prompt addresses this tenant ("in Mauvlan"), so it is
+ * editable after connecting, not only at consent time.
+ */
+router.patch("/:tenantId", (req, res) => {
+  const tenantId = String(req.params.tenantId || "");
+  if (!isValidUUID(tenantId)) {
+    return res.status(400).json({ error: "Invalid tenant ID." });
+  }
+  const raw = (req.body ?? {}).friendlyName;
+  if (raw !== null && typeof raw !== "string") {
+    return res.status(400).json({ error: "friendlyName must be a string, or null to clear it." });
+  }
+  const updated = renameTenant(tenantId, raw === null ? null : String(raw));
+  if (!updated) return res.status(404).json({ error: "Tenant is not connected." });
+  res.json(updated);
+});
+
+/**
  * GET /api/tenants/consent-url?tenantId=xxx
  *
  * Returns the admin-consent URL the client should open in a popup.
  * tenantId is optional — pass "common" or omit to let the admin choose.
  */
-router.get("/consent-url", (req, res) => {
+router.get("/consent-url", async (req, res) => {
   pruneStates();
 
   const requested = typeof req.query.tenantId === "string" ? req.query.tenantId : "common";
@@ -104,8 +177,29 @@ router.get("/consent-url", (req, res) => {
     return res.status(400).json({ error: "Invalid tenantId — must be a UUID, domain, or 'common'." });
   }
 
+  // Check our own registration first. Entra raises both of these failures on
+  // its own sign-in page without redirecting, so the callback below never sees
+  // them — explaining them here is the only chance to say anything useful, and
+  // it saves asking another tenant's admin to click a link that cannot work.
+  const readiness = await checkConsentReadiness();
+  if (!readiness.ready) {
+    return res.status(409).json({
+      error:
+        "This app registration cannot be consented in another tenant yet:\n\n" +
+        readiness.blockers.map((b) => `• ${b}`).join("\n\n"),
+      blockers: readiness.blockers,
+    });
+  }
+
+  const friendlyName =
+    typeof req.query.friendlyName === "string" ? req.query.friendlyName.trim().slice(0, 64) : "";
+
   const state = randomBytes(32).toString("hex");
-  consentStates.set(state, { createdAt: Date.now(), requestedTenantId: requested });
+  consentStates.set(state, {
+    createdAt: Date.now(),
+    requestedTenantId: requested,
+    friendlyName: friendlyName || undefined,
+  });
 
   const url = buildAdminConsentUrl(requested, state);
   res.json({ url, state });
@@ -142,13 +236,16 @@ router.get("/consent-callback", async (req, res) => {
       message: "Invalid or expired state token. Please retry the connection.",
     }));
   }
+  const pending = consentStates.get(state);
   consentStates.delete(state);
 
-  // Surface any error from Azure AD.
+  // Surface any error from Azure AD. Only errors raised after Entra has
+  // validated the redirect URI arrive here; the registration-level ones
+  // (AADSTS700016, AADSTS50011) are caught by the preflight on /consent-url.
   if (errorCode) {
     return res.type("html").send(renderCallback({
       ok: false,
-      message: `Azure AD error: ${errorCode} — ${errorDesc || "no description"}`,
+      message: explainConsentError(errorCode, errorDesc),
     }));
   }
 
@@ -160,10 +257,10 @@ router.get("/consent-callback", async (req, res) => {
   }
 
   try {
-    const tenant = await registerTenant(tenantParam);
+    const tenant = await registerTenant(tenantParam, pending?.friendlyName ?? null);
     return res.type("html").send(renderCallback({
       ok: true,
-      message: `Connected: ${tenant.displayName}`,
+      message: `Connected: ${tenant.friendlyName ? `${tenant.friendlyName} (${tenant.displayName})` : tenant.displayName}`,
       tenant,
     }));
   } catch (err) {
@@ -173,6 +270,35 @@ router.get("/consent-callback", async (req, res) => {
     }));
   }
 });
+
+/**
+ * Turn an Entra consent error into something a person can act on. Unknown codes
+ * keep their original text rather than being given an invented meaning.
+ */
+function explainConsentError(code: string, description: string): string {
+  const known: Record<string, string> = {
+    access_denied:
+      "The administrator declined consent, or cancelled the sign-in. Nothing was changed in that tenant.",
+    AADSTS65004:
+      "The administrator declined consent. Nothing was changed in that tenant.",
+    AADSTS90094:
+      "The account that signed in is not a Global Administrator in that tenant. " +
+      "Granting these permissions is tenant-wide, so only a Global Administrator can do it.",
+    AADSTS650056:
+      "The app is misconfigured for that tenant, or the admin signed in to a different " +
+      "tenant than the one requested.",
+  };
+
+  // The description carries the AADSTS code even when `error` is a generic
+  // OAuth code such as access_denied, so match on both.
+  const matched = Object.keys(known).find(
+    (k) => k === code || description.includes(k)
+  );
+  const detail = description || "no description";
+  return matched
+    ? `${known[matched]}\n\n(Entra reported: ${code} — ${detail})`
+    : `Entra error: ${code} — ${detail}`;
+}
 
 // ─── HTML callback page ───────────────────────────────────────────
 // Posts a message to window.opener (the React app) and closes the popup.

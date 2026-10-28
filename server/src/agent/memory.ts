@@ -11,6 +11,7 @@ import Database from "better-sqlite3";
 import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
+import { activeTenant, ensureTenantColumn } from "../tenants/scope.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(__dirname, "..", "..", "data");
@@ -62,6 +63,10 @@ function getDb(): Database.Database {
     END;
   `);
 
+  // A note recorded while working on one customer must not surface as
+  // context while working on another.
+  ensureTenantColumn(db, "notes");
+
   return db;
 }
 
@@ -79,8 +84,8 @@ export interface MemoryNote {
 export function saveNote(content: string, category: string = "general"): MemoryNote {
   const database = getDb();
   const result = database
-    .prepare("INSERT INTO notes (content, category) VALUES (?, ?)")
-    .run(content, category);
+    .prepare("INSERT INTO notes (content, category, tenant_id) VALUES (?, ?, ?)")
+    .run(content, category, activeTenant());
 
   return {
     id: result.lastInsertRowid as number,
@@ -103,11 +108,11 @@ export function searchNotes(query: string, limit: number = 20): MemoryNote[] {
       `SELECT n.id, n.content, n.category, n.created_at, n.updated_at
        FROM notes n
        JOIN notes_fts f ON n.id = f.rowid
-       WHERE notes_fts MATCH ?
+       WHERE notes_fts MATCH ? AND n.tenant_id IS ?
        ORDER BY rank
        LIMIT ?`
     )
-    .all(query, limit) as MemoryNote[];
+    .all(query, activeTenant(), limit) as MemoryNote[];
 
   return rows;
 }
@@ -121,14 +126,14 @@ export function getNotes(category?: string, limit: number = 50): MemoryNote[] {
   if (category) {
     return database
       .prepare(
-        "SELECT * FROM notes WHERE category = ? ORDER BY updated_at DESC LIMIT ?"
+        "SELECT * FROM notes WHERE tenant_id IS ? AND category = ? ORDER BY updated_at DESC LIMIT ?"
       )
-      .all(category, limit) as MemoryNote[];
+      .all(activeTenant(), category, limit) as MemoryNote[];
   }
 
   return database
-    .prepare("SELECT * FROM notes ORDER BY updated_at DESC LIMIT ?")
-    .all(limit) as MemoryNote[];
+    .prepare("SELECT * FROM notes WHERE tenant_id IS ? ORDER BY updated_at DESC LIMIT ?")
+    .all(activeTenant(), limit) as MemoryNote[];
 }
 
 /**
@@ -136,7 +141,7 @@ export function getNotes(category?: string, limit: number = 50): MemoryNote[] {
  */
 export function deleteNote(id: number): boolean {
   const database = getDb();
-  const result = database.prepare("DELETE FROM notes WHERE id = ?").run(id);
+  const result = database.prepare("DELETE FROM notes WHERE id = ? AND tenant_id IS ?").run(id, activeTenant());
   return result.changes > 0;
 }
 

@@ -178,6 +178,7 @@ export const DESTRUCTIVE_TOOLS = new Set([
   "run_cmpivot_query",
   "add_configmgr_collection_member",
   "import_configmgr_machine_entry",
+  "install_configmgr_client",
 ]);
 
 /** Tools that are read-only and safe */

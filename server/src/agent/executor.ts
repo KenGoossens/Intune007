@@ -108,7 +108,12 @@ import {
   getDeviceCollections,
   addCollectionDirectMember,
   importMachineEntry,
+  getCollectionMembers,
+  getDeploymentStatus,
+  getApplicationDetail,
+  getConfigMgrDeviceCard,
 } from "../configmgr/adminService.js";
+import { installConfigMgrClient, preflightClientPush } from "../configmgr/clientPush.js";
 import { computeSecurityPosture } from "../routes/securityPosture.js";
 import { getAppHealthData } from "../routes/appHealth.js";
 import { checkAutopilotReadinessCore, ingestAutopilotCsv } from "../routes/autopilotReadiness.js";
@@ -781,7 +786,11 @@ export async function executeTool(
       }
 
       case "switch_tenant": {
-        const result = switchTenant(args.tenantId);
+        // `tenantId` is accepted too: older transcripts and saved workflows
+        // still use it, and a model that has seen them will send it.
+        const ref = String(args.tenant ?? args.tenantId ?? "");
+        const result = switchTenant(ref);
+        if (!result.success) throw new Error(result.message);
         return { data: [result], totalCount: 1 };
       }
 
@@ -1210,6 +1219,59 @@ export async function executeTool(
         return { data: memberships, totalCount: memberships.length };
       }
 
+      case "get_configmgr_collection_members": {
+        if (!isConfigMgrConfigured()) return configMgrNotConnected();
+        const members = await getCollectionMembers(String(args.collectionId), {
+          top: typeof args.top === "number" ? args.top : undefined,
+        });
+        return { data: members, totalCount: members.length };
+      }
+
+      case "get_configmgr_deployment_status": {
+        if (!isConfigMgrConfigured()) return configMgrNotConnected();
+        const rows = await getDeploymentStatus(String(args.deploymentId), {
+          top: typeof args.top === "number" ? args.top : undefined,
+          errorsOnly: args.includeAll === true ? false : undefined,
+        });
+        const unrecognised = rows.filter((r) => r.errorCode && !r.errorRecognised).length;
+        return {
+          data: rows,
+          totalCount: rows.length,
+          ...(unrecognised > 0
+            ? {
+                note: `${unrecognised} row(s) carry an error code that is not in the verified reference. Report those as unrecognised rather than guessing their meaning.`,
+              }
+            : {}),
+        };
+      }
+
+      case "install_configmgr_client": {
+        if (!isConfigMgrConfigured()) return configMgrNotConnected();
+        const pushed = await installConfigMgrClient({
+          deviceName: String(args.deviceName),
+          forceReinstall: args.forceReinstall === true,
+        });
+        return { data: [pushed], totalCount: 1 };
+      }
+
+      case "get_configmgr_device_card": {
+        if (!isConfigMgrConfigured()) return configMgrNotConnected();
+        const card = await getConfigMgrDeviceCard(String(args.deviceName));
+        if (!card) {
+          return { data: [], error: `No ConfigMgr record found for device '${args.deviceName}'.` };
+        }
+        return { data: [card], totalCount: 1 };
+      }
+
+      case "get_configmgr_application_detail": {
+        if (!isConfigMgrConfigured()) return configMgrNotConnected();
+        const detail = await getApplicationDetail(String(args.ciId));
+        if (!detail) {
+          return { data: [], error: `No ConfigMgr application found with CI_ID ${args.ciId}.` };
+        }
+        return { data: [detail], totalCount: 1 };
+      }
+
       case "add_configmgr_collection_member": {
         if (!isConfigMgrConfigured()) return configMgrNotConnected();
         const added = await addCollectionDirectMember({
@@ -1222,7 +1284,9 @@ export async function executeTool(
           data: [{
             success: true,
             ...added,
-            message: `Added as a direct member of collection ${added.collectionId}. Collection membership updates after the next evaluation.`,
+            message: added.simulated
+              ? `SIMULATED — demo mode is on, so nothing was changed in any Configuration Manager site. In a real site this would add a direct membership rule to collection ${added.collectionId}.`
+              : `Added as a direct member of collection ${added.collectionId}. Collection membership updates after the next evaluation.`,
           }],
           totalCount: 1,
         };
@@ -1241,9 +1305,11 @@ export async function executeTool(
           data: [{
             success: true,
             ...imported,
-            message: imported.machineExists
-              ? "A matching record already existed and was updated."
-              : "Computer prestaged for OS Deployment.",
+            message: imported.simulated
+              ? "SIMULATED — demo mode is on, so no computer was prestaged in any Configuration Manager site. In a real site this would create the record for OS Deployment."
+              : imported.machineExists
+                ? "A matching record already existed and was updated."
+                : "Computer prestaged for OS Deployment.",
           }],
           totalCount: 1,
         };

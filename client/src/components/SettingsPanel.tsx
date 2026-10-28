@@ -1,4 +1,6 @@
+import { useEffect } from "react";
 import { useSettingsStore } from "../stores/settingsStore.ts";
+import { useConfigMgrStore } from "../stores/configMgrStore.ts";
 
 const PANEL_INFO: { id: string; label: string; category: string }[] = [
   // Core
@@ -33,6 +35,16 @@ const CATEGORIES = ["Core", "Operations", "Insights"];
 export default function SettingsPanel() {
   const { panelVisibility, togglePanel, enableAll, disableAll } =
     useSettingsStore();
+  const demoMode = useConfigMgrStore((s) => s.demoMode);
+  const demoSimulating = useConfigMgrStore((s) => s.demoSimulating);
+  const fetchDemoMode = useConfigMgrStore((s) => s.fetchDemoMode);
+  const setDemoMode = useConfigMgrStore((s) => s.setDemoMode);
+
+  // Server-backed, unlike the panel toggles above it. A failed fetch must not
+  // stop the rest of this panel working.
+  useEffect(() => {
+    void fetchDemoMode();
+  }, [fetchDemoMode]);
 
   const enabledCount = PANEL_INFO.filter(
     (panel) => panelVisibility[panel.id] !== false
@@ -46,6 +58,50 @@ export default function SettingsPanel() {
         <p className="text-sm text-gray-400 mb-6">
           Toggle panels on or off to customize your navigation sidebar.
         </p>
+
+        {/* Integrations — server-backed settings */}
+        <div className="mb-6 rounded-lg border border-gray-800 bg-gray-900/40 p-4">
+          <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">
+            Integrations
+          </h3>
+          <button
+            onClick={() => void setDemoMode(!demoMode)}
+            className="w-full flex items-center justify-between gap-4 text-left"
+          >
+            <span>
+              <span className="block text-sm text-gray-200">
+                Configuration Manager demo data
+              </span>
+              <span className="block text-xs text-gray-500 mt-0.5">
+                Simulate a ConfigMgr site so the agent can demonstrate collections,
+                deployments and OSD without a connected AdminService. A real
+                connection always takes precedence.
+              </span>
+            </span>
+            <div
+              className={`shrink-0 w-9 h-5 rounded-full relative transition-colors ${
+                demoMode ? "bg-brand-500" : "bg-gray-700"
+              }`}
+            >
+              <div
+                className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${
+                  demoMode ? "translate-x-4" : "translate-x-0.5"
+                }`}
+              />
+            </div>
+          </button>
+          {demoMode && !demoSimulating && (
+            <p className="mt-3 text-xs text-amber-400">
+              A real ConfigMgr connection is configured, so live site data is being
+              used and nothing is simulated.
+            </p>
+          )}
+          {demoSimulating && (
+            <p className="mt-3 text-xs text-amber-400">
+              ConfigMgr site data is simulated. Writes change nothing.
+            </p>
+          )}
+        </div>
 
         {/* Quick actions */}
         <div className="flex items-center gap-3 mb-6">

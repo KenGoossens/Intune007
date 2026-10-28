@@ -16,7 +16,7 @@ function loadCache(t, respond) {
   const exports = {};
   const client = { api(url) { return { version() { return this; }, async get() { return respond(url); } }; } };
   vm.runInNewContext(outputText, { exports, process: { cwd: () => directory }, console: { log() {}, warn() {} }, Date, setInterval, clearInterval,
-    require(name) { if (name === 'better-sqlite3') return ScratchDatabase; if (name === 'path') return path; if (name === '../graph/client.js') return { getGraphClient: () => client }; throw new Error(name); } });
+    require(name) { if (name === 'better-sqlite3') return ScratchDatabase; if (name === 'path') return path; if (name === '../graph/client.js') return { getGraphClient: () => client }; if (name === '../graph/tenantManager.js') return { getActiveTenantId: () => 'test-tenant' }; throw new Error(name); } });
   t.after(() => { handles.forEach(db => db.close()); fs.rmSync(directory, { recursive: true, force: true }); });
   return { ...exports, database: () => handles[0] };
 }

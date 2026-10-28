@@ -25,6 +25,7 @@ import Database from "better-sqlite3";
 import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
+import { activeTenant, ensureTenantColumn } from "../tenants/scope.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(__dirname, "..", "..", "data");
@@ -50,6 +51,10 @@ function getDb(): Database.Database {
       error TEXT
     );
   `);
+
+  // A remediation action names specific devices in a specific directory.
+  // Approving one against the wrong tenant would act on the wrong machines.
+  ensureTenantColumn(db, "remediation_actions");
 
   return db;
 }
@@ -85,11 +90,11 @@ export async function generateRemediationAction(
 
   // Check if action already exists for this CVE
   const existing = db
-    .prepare("SELECT id FROM remediation_actions WHERE cve_id = ? AND status NOT IN ('failed', 'rejected')")
-    .get(cveId) as { id: number } | undefined;
+    .prepare("SELECT id FROM remediation_actions WHERE cve_id = ? AND tenant_id IS ? AND status NOT IN ('failed', 'rejected')")
+    .get(cveId, activeTenant()) as { id: number } | undefined;
 
   if (existing) {
-    const row = db.prepare("SELECT * FROM remediation_actions WHERE id = ?").get(existing.id) as Record<string, unknown>;
+    const row = db.prepare("SELECT * FROM remediation_actions WHERE id = ? AND tenant_id IS ?").get(existing.id, activeTenant()) as Record<string, unknown>;
     return rowToAction(row);
   }
 
@@ -154,10 +159,10 @@ Return ONLY the JSON, no markdown.`,
 
   const result = db
     .prepare(
-      `INSERT INTO remediation_actions (cve_id, action_type, title, description, action_payload)
-       VALUES (?, ?, ?, ?, ?)`
+      `INSERT INTO remediation_actions (cve_id, action_type, title, description, action_payload, tenant_id)
+       VALUES (?, ?, ?, ?, ?, ?)`
     )
-    .run(cveId, actionType, parsed.title, parsed.description, JSON.stringify(parsed.payload));
+    .run(cveId, actionType, parsed.title, parsed.description, JSON.stringify(parsed.payload), activeTenant());
 
   return {
     id: result.lastInsertRowid as number,
@@ -181,7 +186,7 @@ Return ONLY the JSON, no markdown.`,
  */
 export async function executeRemediationAction(actionId: number, targetGroupId?: string): Promise<RemediationAction> {
   const db = getDb();
-  const row = db.prepare("SELECT * FROM remediation_actions WHERE id = ?").get(actionId) as Record<string, unknown> | undefined;
+  const row = db.prepare("SELECT * FROM remediation_actions WHERE id = ? AND tenant_id IS ?").get(actionId, activeTenant()) as Record<string, unknown> | undefined;
 
   if (!row) throw new Error(`Action ${actionId} not found`);
   if (row.status !== "pending_approval" && row.status !== "approved") {
@@ -189,7 +194,7 @@ export async function executeRemediationAction(actionId: number, targetGroupId?:
   }
 
   // Mark as executing
-  db.prepare("UPDATE remediation_actions SET status = 'executing', approved_at = datetime('now') WHERE id = ?").run(actionId);
+  db.prepare("UPDATE remediation_actions SET status = 'executing', approved_at = datetime('now') WHERE id = ? AND tenant_id IS ?").run(actionId, activeTenant());
 
   const actionType = String(row.action_type) as ActionType;
   const payload = JSON.parse(String(row.action_payload));
@@ -279,17 +284,17 @@ export async function executeRemediationAction(actionId: number, targetGroupId?:
         resultMessage = `Action type "${actionType}" executed. Manual verification recommended.`;
     }
 
-    db.prepare("UPDATE remediation_actions SET status = 'completed', executed_at = datetime('now'), result = ? WHERE id = ?")
-      .run(resultMessage, actionId);
+    db.prepare("UPDATE remediation_actions SET status = 'completed', executed_at = datetime('now'), result = ? WHERE id = ? AND tenant_id IS ?")
+      .run(resultMessage, actionId, activeTenant());
 
     // Also update the CVE status to remediated
-    db.prepare("UPDATE cve_entries SET status = 'remediated' WHERE cve_id = ?").run(cveId);
+    db.prepare("UPDATE cve_entries SET status = 'remediated' WHERE cve_id = ? AND tenant_id IS ?").run(cveId, activeTenant());
 
-    return { ...rowToAction(db.prepare("SELECT * FROM remediation_actions WHERE id = ?").get(actionId) as Record<string, unknown>) };
+    return { ...rowToAction(db.prepare("SELECT * FROM remediation_actions WHERE id = ? AND tenant_id IS ?").get(actionId, activeTenant()) as Record<string, unknown>) };
   } catch (err: unknown) {
     const errMsg = err instanceof Error ? err.message : String(err);
-    db.prepare("UPDATE remediation_actions SET status = 'failed', error = ? WHERE id = ?")
-      .run(errMsg.substring(0, 500), actionId);
+    db.prepare("UPDATE remediation_actions SET status = 'failed', error = ? WHERE id = ? AND tenant_id IS ?")
+      .run(errMsg.substring(0, 500), actionId, activeTenant());
     throw err;
   }
 }
@@ -299,7 +304,7 @@ export async function executeRemediationAction(actionId: number, targetGroupId?:
  */
 export function rejectRemediationAction(actionId: number): void {
   const db = getDb();
-  db.prepare("UPDATE remediation_actions SET status = 'rejected' WHERE id = ?").run(actionId);
+  db.prepare("UPDATE remediation_actions SET status = 'rejected' WHERE id = ? AND tenant_id IS ?").run(actionId, activeTenant());
 }
 
 /**
@@ -307,8 +312,8 @@ export function rejectRemediationAction(actionId: number): void {
  */
 export function getRemediationActions(options?: { cveId?: string; status?: string }): RemediationAction[] {
   const db = getDb();
-  let query = "SELECT * FROM remediation_actions WHERE 1=1";
-  const params: unknown[] = [];
+  let query = "SELECT * FROM remediation_actions WHERE tenant_id IS ?";
+  const params: unknown[] = [activeTenant()];
 
   if (options?.cveId) { query += " AND cve_id = ?"; params.push(options.cveId); }
   if (options?.status) { query += " AND status = ?"; params.push(options.status); }
@@ -323,7 +328,7 @@ export function getRemediationActions(options?: { cveId?: string; status?: strin
  */
 export function getPendingActionCount(): number {
   const db = getDb();
-  return (db.prepare("SELECT COUNT(*) as c FROM remediation_actions WHERE status = 'pending_approval'").get() as { c: number }).c;
+  return (db.prepare("SELECT COUNT(*) as c FROM remediation_actions WHERE status = 'pending_approval' AND tenant_id IS ?").get(activeTenant()) as { c: number }).c;
 }
 
 function mapSuggestedType(type: string): ActionType {

@@ -13,6 +13,7 @@
 import Database from "better-sqlite3";
 import path from "path";
 import { getGraphClient, fetchWithPagination } from "../graph/client.js";
+import { getActiveTenantId } from "../graph/tenantManager.js";
 
 const DB_PATH = path.join(process.cwd(), "devices.db");
 const BETA = "https://graph.microsoft.com/beta";
@@ -77,7 +78,36 @@ function getDb(): Database.Database {
     );
   `);
 
+  // Every cached device belongs to exactly one tenant. Without this column the
+  // cache is a single pool shared by every connected tenant, and a count run
+  // against one customer returns another customer's devices — reported under
+  // the wrong tenant's name, which reads as a perfectly ordinary answer.
+  const columns = (db.prepare(`PRAGMA table_info(devices)`).all() as Array<{ name: string }>)
+    .map((c) => c.name);
+  if (!columns.includes("tenant_id")) {
+    db.exec(`ALTER TABLE devices ADD COLUMN tenant_id TEXT`);
+    // Rows cached before this column existed cannot be attributed to a tenant
+    // now. Keeping them would go on mixing tenants; this is a cache, so
+    // dropping them costs one resync and removes the mis-attribution.
+    db.exec(`DELETE FROM devices`);
+    db.exec(`DELETE FROM sync_meta`);
+  }
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_devices_tenant ON devices(tenant_id)`);
+
   return db;
+}
+
+/**
+ * The tenant every cache read and write is scoped to. A cached row is only
+ * meaningful next to the tenant it came from.
+ */
+function activeTenant(): string {
+  return getActiveTenantId() || "";
+}
+
+/** Scope a sync_meta key to a tenant: a delta link is per-tenant state. */
+function metaKey(key: string): string {
+  return `${activeTenant()}:${key}`;
 }
 
 // ─── Upsert a device into cache ─────────────────────────────────
@@ -88,14 +118,14 @@ const upsertStmt = () => getDb().prepare(`
     lastSyncDateTime, userPrincipalName, model, manufacturer,
     serialNumber, isEncrypted, joinType, skuFamily,
     totalStorageSpaceInBytes, freeStorageSpaceInBytes,
-    autopilotEnrolled, azureADDeviceId, _json, _syncedAt
+    autopilotEnrolled, azureADDeviceId, _json, _syncedAt, tenant_id
   ) VALUES (
     @id, @deviceName, @operatingSystem, @osVersion, @complianceState,
     @managementAgent, @managedDeviceOwnerType, @enrolledDateTime,
     @lastSyncDateTime, @userPrincipalName, @model, @manufacturer,
     @serialNumber, @isEncrypted, @joinType, @skuFamily,
     @totalStorageSpaceInBytes, @freeStorageSpaceInBytes,
-    @autopilotEnrolled, @azureADDeviceId, @_json, datetime('now')
+    @autopilotEnrolled, @azureADDeviceId, @_json, datetime('now'), @tenant_id
   ) ON CONFLICT(id) DO UPDATE SET
     deviceName = @deviceName,
     operatingSystem = @operatingSystem,
@@ -117,7 +147,8 @@ const upsertStmt = () => getDb().prepare(`
     autopilotEnrolled = @autopilotEnrolled,
     azureADDeviceId = @azureADDeviceId,
     _json = @_json,
-    _syncedAt = datetime('now')
+    _syncedAt = datetime('now'),
+    tenant_id = @tenant_id
 `);
 
 function deviceToRow(d: Record<string, unknown>) {
@@ -143,18 +174,19 @@ function deviceToRow(d: Record<string, unknown>) {
     autopilotEnrolled: d.autopilotEnrolled === true ? 1 : d.autopilotEnrolled === false ? 0 : null,
     azureADDeviceId: d.azureADDeviceId != null ? String(d.azureADDeviceId) : null,
     _json: JSON.stringify(d),
+    tenant_id: activeTenant(),
   };
 }
 
 // ─── Delta Sync ─────────────────────────────────────────────────
 
 function getMeta(key: string): string | null {
-  const row = getDb().prepare("SELECT value FROM sync_meta WHERE key = ?").get(key) as { value: string } | undefined;
+  const row = getDb().prepare("SELECT value FROM sync_meta WHERE key = ?").get(metaKey(key)) as { value: string } | undefined;
   return row?.value || null;
 }
 
 function setMeta(key: string, value: string): void {
-  getDb().prepare("INSERT OR REPLACE INTO sync_meta (key, value) VALUES (?, ?)").run(key, value);
+  getDb().prepare("INSERT OR REPLACE INTO sync_meta (key, value) VALUES (?, ?)").run(metaKey(key), value);
 }
 
 /**
@@ -187,14 +219,14 @@ export async function fullSync(): Promise<{ deviceCount: number; durationMs: num
   // Fetching every page first leaves the previous cache intact on network failure.
   const stmt = upsertStmt();
   const replaceSnapshot = getDb().transaction((devices: Record<string, unknown>[]) => {
-    getDb().prepare("DELETE FROM devices").run();
+    getDb().prepare("DELETE FROM devices WHERE tenant_id IS ?").run(activeTenant());
     for (const d of devices) {
       stmt.run(deviceToRow(d));
     }
     const syncedAt = new Date().toISOString();
     setMeta("lastFullSync", syncedAt);
     setMeta("lastSync", syncedAt);
-    getDb().prepare("DELETE FROM sync_meta WHERE key = 'deltaLink'").run();
+    getDb().prepare("DELETE FROM sync_meta WHERE key = ?").run(metaKey("deltaLink"));
   });
   replaceSnapshot(allDevices);
 
@@ -259,7 +291,7 @@ export async function deltaSync(): Promise<{
   let removed = 0;
 
   const stmt = upsertStmt();
-  const deleteStmt = getDb().prepare("DELETE FROM devices WHERE id = ?");
+  const deleteStmt = getDb().prepare("DELETE FROM devices WHERE id = ? AND tenant_id IS ?");
 
   let resp = await client.api(deltaLink).get();
 
@@ -267,13 +299,13 @@ export async function deltaSync(): Promise<{
     for (const item of items) {
       if (item["@removed"]) {
         // Device was deleted
-        deleteStmt.run(String(item.id));
+        deleteStmt.run(String(item.id), activeTenant());
         removed++;
       } else {
         // Check if it exists
         const exists = getDb()
-          .prepare("SELECT 1 FROM devices WHERE id = ?")
-          .get(String(item.id));
+          .prepare("SELECT 1 FROM devices WHERE id = ? AND tenant_id IS ?")
+          .get(String(item.id), activeTenant());
         stmt.run(deviceToRow(item));
         if (exists) {
           modified++;
@@ -321,11 +353,13 @@ export function queryDevices(options?: {
   const database = getDb();
   const top = Math.min(options?.top || 100, 1000);
 
-  let whereClause = "";
-  const params: unknown[] = [];
+  // Tenant scoping is not a caller's choice: it is the first clause of every
+  // query, so no filter can widen past the active tenant.
+  const params: unknown[] = [activeTenant()];
+  let whereClause = "WHERE tenant_id IS ?";
 
   if (options?.filter) {
-    whereClause = "WHERE " + odataToSql(options.filter, params);
+    whereClause += " AND (" + odataToSql(options.filter, params) + ")";
   }
 
   // Get total count
@@ -351,8 +385,8 @@ export function queryDevices(options?: {
  */
 export async function getCachedDevice(deviceId: string): Promise<Record<string, unknown> | null> {
   const row = getDb()
-    .prepare("SELECT _json FROM devices WHERE id = ?")
-    .get(deviceId) as { _json: string } | undefined;
+    .prepare("SELECT _json FROM devices WHERE id = ? AND tenant_id IS ?")
+    .get(deviceId, activeTenant()) as { _json: string } | undefined;
 
   if (row) {
     return JSON.parse(row._json);
@@ -396,7 +430,7 @@ export function getCacheStats(): {
   cacheAgeMs: number;
 } {
   const database = getDb();
-  const count = (database.prepare("SELECT COUNT(*) as c FROM devices").get() as { c: number }).c;
+  const count = (database.prepare("SELECT COUNT(*) as c FROM devices WHERE tenant_id IS ?").get(activeTenant()) as { c: number }).c;
   const lastSync = getMeta("lastSync");
   const lastFullSync = getMeta("lastFullSync");
   const cacheAgeMs = lastSync ? Date.now() - new Date(lastSync).getTime() : Infinity;

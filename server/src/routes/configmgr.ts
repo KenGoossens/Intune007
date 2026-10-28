@@ -11,14 +11,22 @@ import {
   getDeployments,
   getApplications,
   isConfigMgrConfigured,
+  isConfigMgrSimulated,
   resetConfigMgrAuthCache,
   runCmPivot,
+  getCollectionMembers,
+  getDeploymentStatus,
+  getApplicationDetail,
+  getDeviceCollections,
+  getConfigMgrDeviceCard,
 } from "../configmgr/adminService.js";
 import { triggerConfigMgrClientAction } from "../configmgr/comanagement.js";
 import {
   getStoredConnection,
   saveStoredConnection,
   clearStoredConnection,
+  getDemoMode,
+  setDemoMode,
 } from "../configmgr/connectionStore.js";
 import { sanitizeErrorMessage, auditLog } from "../security.js";
 
@@ -194,6 +202,136 @@ router.delete("/connection", (_req: Request, res: Response) => {
   clearStoredConnection();
   resetConfigMgrAuthCache();
   res.json({ ok: true });
+});
+
+/**
+ * GET /api/configmgr/collections/:collectionId/members
+ * Devices that are members of a collection.
+ */
+router.get("/collections/:collectionId/members", async (req: Request, res: Response) => {
+  if (!isConfigMgrConfigured()) {
+    res.json(NOT_CONFIGURED);
+    return;
+  }
+  try {
+    const top = req.query.top ? parseInt(String(req.query.top), 10) : undefined;
+    const items = await getCollectionMembers(String(req.params.collectionId), { top });
+    res.json({ configured: true, items, totalCount: items.length });
+  } catch (err) {
+    res.status(502).json({ error: sanitizeErrorMessage(String(err)) });
+  }
+});
+
+/**
+ * GET /api/configmgr/deployments/:assignmentId/status
+ * Per-device status for a deployment. `?all=1` includes non-failures.
+ */
+router.get("/deployments/:assignmentId/status", async (req: Request, res: Response) => {
+  if (!isConfigMgrConfigured()) {
+    res.json(NOT_CONFIGURED);
+    return;
+  }
+  try {
+    const top = req.query.top ? parseInt(String(req.query.top), 10) : undefined;
+    const errorsOnly = req.query.all === "1" ? false : undefined;
+    const items = await getDeploymentStatus(String(req.params.assignmentId), { top, errorsOnly });
+    res.json({ configured: true, items, totalCount: items.length });
+  } catch (err) {
+    res.status(502).json({ error: sanitizeErrorMessage(String(err)) });
+  }
+});
+
+/**
+ * GET /api/configmgr/applications/:ciId
+ * Detail for a single application.
+ */
+router.get("/applications/:ciId", async (req: Request, res: Response) => {
+  if (!isConfigMgrConfigured()) {
+    res.json(NOT_CONFIGURED);
+    return;
+  }
+  try {
+    const item = await getApplicationDetail(String(req.params.ciId));
+    if (!item) {
+      res.status(404).json({ error: "Application not found." });
+      return;
+    }
+    res.json({ configured: true, items: [item], totalCount: 1 });
+  } catch (err) {
+    res.status(502).json({ error: sanitizeErrorMessage(String(err)) });
+  }
+});
+
+/**
+ * GET /api/configmgr/devices/:deviceName/collections
+ * ConfigMgr context for one device. ConfigMgr devices only exist in Intune when
+ * they are co-managed, so this is the drill-down that always resolves.
+ */
+router.get("/devices/:deviceName/collections", async (req: Request, res: Response) => {
+  if (!isConfigMgrConfigured()) {
+    res.json(NOT_CONFIGURED);
+    return;
+  }
+  try {
+    const rows = await getDeviceCollections([String(req.params.deviceName)]);
+    const row = rows[0];
+    if (!row || !row.found) {
+      res.status(404).json({ error: `Device '${req.params.deviceName}' was not found in Configuration Manager.` });
+      return;
+    }
+    res.json({ configured: true, items: row.collections, totalCount: row.collections.length, resourceId: row.resourceId });
+  } catch (err) {
+    res.status(502).json({ error: sanitizeErrorMessage(String(err)) });
+  }
+});
+
+/**
+ * GET /api/configmgr/devices/:deviceName
+ * The ConfigMgr record for one device, with its collection membership.
+ */
+router.get("/devices/:deviceName", async (req: Request, res: Response) => {
+  if (!isConfigMgrConfigured()) {
+    res.json(NOT_CONFIGURED);
+    return;
+  }
+  try {
+    const card = await getConfigMgrDeviceCard(String(req.params.deviceName));
+    if (!card) {
+      res.status(404).json({ error: `Device '${req.params.deviceName}' was not found in Configuration Manager.` });
+      return;
+    }
+    res.json({ configured: true, items: [card], totalCount: 1 });
+  } catch (err) {
+    res.status(502).json({ error: sanitizeErrorMessage(String(err)) });
+  }
+});
+
+/**
+ * GET /api/configmgr/demo-mode
+ * Whether ConfigMgr site data is being simulated.
+ */
+router.get("/demo-mode", (_req: Request, res: Response) => {
+  res.json({ enabled: getDemoMode(), simulating: isConfigMgrSimulated() });
+});
+
+/**
+ * POST /api/configmgr/demo-mode  { enabled: boolean }
+ * Turn simulated ConfigMgr site data on or off. A real connection always takes
+ * precedence, so enabling this while one is configured changes nothing.
+ */
+router.post("/demo-mode", (req: Request, res: Response) => {
+  const enabled = req.body?.enabled === true;
+  setDemoMode(enabled);
+  resetConfigMgrAuthCache();
+  auditLog({
+    timestamp: new Date().toISOString(),
+    toolName: "configmgr_demo_mode",
+    args: { enabled },
+    isDestructive: false,
+    confirmed: true,
+    result: "success",
+  });
+  res.json({ ok: true, enabled, simulating: isConfigMgrSimulated() });
 });
 
 /**
