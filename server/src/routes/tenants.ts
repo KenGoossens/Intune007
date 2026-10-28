@@ -25,6 +25,7 @@ import {
   checkConsentReadiness,
   renameTenant,
 } from "../graph/tenantManager.js";
+import { isCacheWarm, fullSync } from "../cache/deviceCache.js";
 import { isValidUUID, sanitizeErrorMessage } from "../security.js";
 
 const router = Router();
@@ -78,6 +79,20 @@ router.post("/active", (req, res) => {
   if (!result.success) {
     return res.status(404).json(result);
   }
+
+  // The device cache is per-tenant, so a tenant that has never been active has
+  // an empty one. Reads fall back to live Graph and stay correct, but an exact
+  // count has nothing to count and simply refuses. Warm it in the background so
+  // switching tenants does not leave the next question unanswerable.
+  if (!isCacheWarm()) {
+    void fullSync().catch((err: unknown) => {
+      console.warn(
+        "[tenants] background cache warm failed:",
+        err instanceof Error ? err.message : String(err)
+      );
+    });
+  }
+
   res.json(result);
 });
 
