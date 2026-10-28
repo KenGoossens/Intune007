@@ -142,6 +142,45 @@ test('deployment errors and the full asset list come from different classes', ()
   );
 });
 
+// ─── CMPivot must answer the query it was asked ───
+
+function runCmPivotFixture(query) {
+  const started = fixtures.demoResponse(
+    'POST',
+    'https://configmgr.demo.invalid/AdminService/v1.0/Device(16777219)/AdminService.RunCMPivot',
+    { InputQuery: query }
+  );
+  const result = fixtures.demoResponse(
+    'GET',
+    `https://configmgr.demo.invalid/AdminService/v1.0/Device(16777219)/AdminService.CMPivotResult(OperationId=${started.OperationId})`
+  );
+  return result.value[0].Result;
+}
+
+test('a CMPivot result answers the entity that was actually queried', () => {
+  const os = runCmPivotFixture('OS');
+  assert.ok(os[0].Caption, 'an OS query must return OS columns');
+  assert.equal(os[0].Name, undefined, 'returning a service list for an OS query is a wrong answer');
+
+  const services = runCmPivotFixture('Service | where State == "Running"');
+  assert.ok(services[0].State, 'a Service query must return service columns');
+  assert.equal(services[0].Caption, undefined);
+});
+
+test('two different queries do not return the same rows', () => {
+  const os = JSON.stringify(runCmPivotFixture('OS'));
+  const proc = JSON.stringify(runCmPivotFixture('Process'));
+  assert.notEqual(os, proc, 'a canned result returned regardless of the query is fabrication');
+});
+
+test('an unsupported CMPivot entity is refused, not answered with unrelated rows', () => {
+  const rows = runCmPivotFixture('EventLog');
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].Simulated, 'Not available');
+  assert.match(rows[0].Detail, /no simulated result/i);
+  assert.equal(rows[0].State, undefined, 'must not fall back to the service list');
+});
+
 test('the demo deliberately includes an unrecognised code so the honest path is exercised', () => {
   const errs = fixtures.demoResponse(
     'GET',

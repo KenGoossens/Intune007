@@ -119,11 +119,65 @@ const DEPLOYMENT_ASSETS_BY_ASSIGNMENT: Record<number, Record<string, unknown>[]>
   ],
 };
 
-const CMPIVOT_ROWS = [
-  { Device: "DMO-FIN-0012", Name: "wuauserv", State: "Running", StartMode: "Auto" },
-  { Device: "DMO-FIN-0012", Name: "CcmExec", State: "Running", StartMode: "Auto" },
-  { Device: "DMO-FIN-0012", Name: "BITS", State: "Stopped", StartMode: "Manual" },
-];
+/**
+ * CMPivot results, keyed by the entity the query asks for.
+ *
+ * CMPivot claims to be a live measurement of one device, so returning rows
+ * that do not answer the query asked is worse than returning nothing: a
+ * service list in response to `OS` is not sample data, it is a wrong answer.
+ * Anything not listed here is refused rather than answered with these rows.
+ */
+const CMPIVOT_RESULTS: Record<string, (device: string) => Record<string, unknown>[]> = {
+  os: (Device) => [
+    {
+      Device,
+      Caption: "Microsoft Windows 11 Enterprise",
+      Version: "10.0.26100",
+      BuildNumber: "26100",
+      InstallDate: "2026-03-14T09:12:00Z",
+    },
+  ],
+  service: (Device) => [
+    { Device, Name: "wuauserv", State: "Running", StartMode: "Auto" },
+    { Device, Name: "CcmExec", State: "Running", StartMode: "Auto" },
+    { Device, Name: "BITS", State: "Stopped", StartMode: "Manual" },
+  ],
+  process: (Device) => [
+    { Device, Name: "CcmExec.exe", ProcessId: 3124, MemoryMB: 142 },
+    { Device, Name: "explorer.exe", ProcessId: 5208, MemoryMB: 96 },
+    { Device, Name: "OUTLOOK.EXE", ProcessId: 7744, MemoryMB: 412 },
+  ],
+  installedsoftware: (Device) => [
+    { Device, ProductName: "Microsoft 365 Apps for enterprise", ProductVersion: "16.0.17928", Publisher: "Microsoft" },
+    { Device, ProductName: "7-Zip", ProductVersion: "24.08", Publisher: "Igor Pavlov" },
+    { Device, ProductName: "Configuration Manager Client", ProductVersion: "5.00.9122.1025", Publisher: "Microsoft" },
+  ],
+  disk: (Device) => [
+    { Device, DeviceID: "C:", SizeGB: 475, FreeSpaceGB: 212 },
+    { Device, DeviceID: "D:", SizeGB: 100, FreeSpaceGB: 94 },
+  ],
+  logicaldisk: (Device) => [
+    { Device, DeviceID: "C:", SizeGB: 475, FreeSpaceGB: 212 },
+    { Device, DeviceID: "D:", SizeGB: 100, FreeSpaceGB: 94 },
+  ],
+  ipconfig: (Device) => [
+    { Device, IPAddress: "10.24.8.41", DefaultGateway: "10.24.8.1", MACAddress: "00:15:5D:3A:1C:77" },
+  ],
+};
+
+/** The CMPivot entity a query asks about, e.g. "OS | project Caption" → "os". */
+function cmPivotEntity(query: string): string {
+  return String(query || "")
+    .trim()
+    .split("|")[0]
+    .trim()
+    .split(/\s+/)[0]
+    .toLowerCase();
+}
+
+/** Operation ID → what was actually asked, so the result can answer that query. */
+const cmPivotOperations = new Map<number, { entity: string; device: string }>();
+let nextCmPivotOperationId = 880000;
 
 // ─── Dispatch ────────────────────────────────────────────────────
 
@@ -165,13 +219,49 @@ export function demoResponse(
       return { ReturnValue: 0, QueryID: 0, simulated: true };
     }
     if (path.includes("RunCMPivot")) {
-      return { OperationId: 884422, simulated: true };
+      // Remember what was asked so the result can answer that query rather
+      // than returning a canned list regardless of the question.
+      const input = (body ?? {}) as Record<string, unknown>;
+      const deviceMatch = path.match(/Device\((\d+)\)/);
+      const resourceId = deviceMatch ? Number(deviceMatch[1]) : 0;
+      const device = DEVICES.find((d) => d.ResourceID === resourceId)?.Name ?? "Unknown device";
+      const operationId = nextCmPivotOperationId++;
+      cmPivotOperations.set(operationId, {
+        entity: cmPivotEntity(String(input.InputQuery ?? "")),
+        device,
+      });
+      return { OperationId: operationId, simulated: true };
     }
   }
 
   // ─── CMPivot result polling ───
   if (path.includes("CMPivotResult")) {
-    return { value: [{ Result: CMPIVOT_ROWS }] };
+    const opMatch = path.match(/OperationId=(\d+)/) ?? search.match(/OperationId=(\d+)/);
+    const op = opMatch ? cmPivotOperations.get(Number(opMatch[1])) : undefined;
+    const device = op?.device ?? "Unknown device";
+    const builder = op ? CMPIVOT_RESULTS[op.entity] : undefined;
+
+    if (!builder) {
+      // Refuse rather than answer a question this demo cannot answer.
+      return {
+        value: [
+          {
+            Result: [
+              {
+                Device: device,
+                Simulated: "Not available",
+                Detail: op
+                  ? `Demo mode has no simulated result for the CMPivot entity '${op.entity}'. CMPivot runs live on a real device, so nothing can be measured here. Connect a ConfigMgr site to run it for real.`
+                  : "Demo mode could not match this CMPivot operation to a query.",
+                SupportedInDemo: Object.keys(CMPIVOT_RESULTS).sort().join(", "),
+              },
+            ],
+          },
+        ],
+      };
+    }
+
+    return { value: [{ Result: builder(device) }] };
   }
 
   // ─── Collection membership for one device ───
