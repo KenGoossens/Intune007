@@ -7,6 +7,7 @@
 
 import { getDueTasks, recordExecution } from "./taskStore.js";
 import { runAgentLoop } from "../agent/agent.js";
+import { getActiveTenantId, switchTenant } from "../graph/tenantManager.js";
 import type { ToolResult } from "../agent/executor.js";
 
 const CHECK_INTERVAL_MS = 60_000; // Check for due tasks every 60 seconds
@@ -24,9 +25,22 @@ export function startTaskScheduler(): void {
     if (running) return; // Prevent overlapping runs
     running = true;
 
+    // A schedule belongs to the tenant it was created for. Running it against
+    // whichever tenant happens to be selected would answer about the wrong
+    // customer, unattended. The selection is restored afterwards so a
+    // background run does not move the UI out from under anyone.
+    const selectedTenant = getActiveTenantId();
+
     try {
       const dueTasks = getDueTasks();
       for (const task of dueTasks) {
+        if (task.tenantId && task.tenantId !== getActiveTenantId()) {
+          const switched = switchTenant(task.tenantId);
+          if (!switched.success) {
+            console.warn(`[TaskScheduler] Skipping ${task.name}: its tenant is no longer connected`);
+            continue;
+          }
+        }
         console.log(`[TaskScheduler] Running task: ${task.name} (${task.id})`);
         const startTime = Date.now();
         let result = "";
@@ -63,6 +77,9 @@ export function startTaskScheduler(): void {
     } catch (err: unknown) {
       console.error("[TaskScheduler] Error checking tasks:", err);
     } finally {
+      if (selectedTenant && getActiveTenantId() !== selectedTenant) {
+        switchTenant(selectedTenant);
+      }
       running = false;
     }
   }, CHECK_INTERVAL_MS);

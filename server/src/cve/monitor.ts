@@ -24,6 +24,7 @@ import fs from "fs";
 import { config } from "../config.js";
 import { getManagedDevices } from "../graph/devices.js";
 import { getGraphClient, fetchWithPagination } from "../graph/client.js";
+import { activeTenant, ensureTenantColumn } from "../tenants/scope.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(__dirname, "..", "..", "data");
@@ -43,7 +44,8 @@ function getDb(): Database.Database {
   db.exec(`
     CREATE TABLE IF NOT EXISTS cve_entries (
       id TEXT PRIMARY KEY,
-      cve_id TEXT NOT NULL UNIQUE,
+      tenant_id TEXT,
+      cve_id TEXT NOT NULL,
       title TEXT,
       description TEXT,
       severity TEXT,
@@ -59,7 +61,12 @@ function getDb(): Database.Database {
       remediation_type TEXT,
       status TEXT DEFAULT 'new',
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      dismissed_at TEXT
+      dismissed_at TEXT,
+      -- A CVE is public, but how many of your devices it affects, and whether
+      -- you have dismissed it, are not. Uniqueness is therefore per tenant:
+      -- a global UNIQUE(cve_id) would let the first tenant to see a CVE own
+      -- its exposure figures for everyone.
+      UNIQUE (tenant_id, cve_id)
     );
 
     CREATE TABLE IF NOT EXISTS cve_scan_log (
@@ -75,6 +82,31 @@ function getDb(): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_cve_status ON cve_entries(status);
     CREATE INDEX IF NOT EXISTS idx_cve_relevance ON cve_entries(relevance_score DESC);
   `);
+
+  // An existing database still has UNIQUE(cve_id), which cannot be dropped in
+  // place. The table is a cache of public feeds, so it is rebuilt and refilled
+  // on the next scan rather than migrated.
+  const cveColumns = (db.prepare(`PRAGMA table_info(cve_entries)`).all() as Array<{ name: string }>)
+    .map((c) => c.name);
+  if (!cveColumns.includes("tenant_id")) {
+    db.exec(`DROP TABLE cve_entries`);
+    db.exec(`
+      CREATE TABLE cve_entries (
+        id TEXT PRIMARY KEY,
+        tenant_id TEXT,
+        cve_id TEXT NOT NULL,
+        title TEXT, description TEXT, severity TEXT, cvss_score REAL,
+        published_date TEXT, modified_date TEXT, affected_products TEXT,
+        source TEXT, is_exploited INTEGER DEFAULT 0, relevance_score REAL DEFAULT 0,
+        affected_device_count INTEGER DEFAULT 0, remediation TEXT, remediation_type TEXT,
+        status TEXT DEFAULT 'new', created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        dismissed_at TEXT,
+        UNIQUE (tenant_id, cve_id)
+      );
+    `);
+  }
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_cve_tenant ON cve_entries(tenant_id)`);
+  ensureTenantColumn(db, "cve_scan_log");
 
   return db;
 }
@@ -422,16 +454,16 @@ export async function runCVEScan(daysBack: number = 7): Promise<CVEScanResult> {
   const newCves: CVEEntry[] = [];
   const insertOrUpdate = database.prepare(
     `INSERT OR REPLACE INTO cve_entries
-     (id, cve_id, title, description, severity, cvss_score, published_date, affected_products, source, is_exploited, relevance_score, affected_device_count, remediation, remediation_type, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+     (id, tenant_id, cve_id, title, description, severity, cvss_score, published_date, affected_products, source, is_exploited, relevance_score, affected_device_count, remediation, remediation_type, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
 
   // Process NVD CVEs
   for (const cve of nvdCves) {
     // Check if already processed
     const existing = database
-      .prepare("SELECT status FROM cve_entries WHERE cve_id = ?")
-      .get(cve.cveId) as { status: string } | undefined;
+      .prepare("SELECT status FROM cve_entries WHERE cve_id = ? AND tenant_id IS ?")
+      .get(cve.cveId, activeTenant()) as { status: string } | undefined;
 
     if (existing && existing.status !== "new") continue; // Don't re-process reviewed/remediated
 
@@ -465,7 +497,9 @@ export async function runCVEScan(daysBack: number = 7): Promise<CVEScanResult> {
     };
 
     insertOrUpdate.run(
-      cve.cveId, cve.cveId, entry.title, entry.description, entry.severity,
+      // The primary key must be unique per tenant too: the same CVE is a
+      // separate row for each tenant, carrying that tenant's exposure.
+      `${activeTenant()}:${cve.cveId}`, activeTenant(), cve.cveId, entry.title, entry.description, entry.severity,
       entry.cvssScore, entry.publishedDate, JSON.stringify(entry.affectedProducts),
       entry.source, isExploited ? 1 : 0, entry.relevanceScore, entry.affectedDeviceCount,
       entry.remediation, entry.remediationType, existing?.status || "new"
@@ -478,8 +512,8 @@ export async function runCVEScan(daysBack: number = 7): Promise<CVEScanResult> {
   for (const kev of cisaKev) {
     if (nvdCves.some((n) => n.cveId === kev.cveId)) continue;
     const existing = database
-      .prepare("SELECT status FROM cve_entries WHERE cve_id = ?")
-      .get(kev.cveId) as { status: string } | undefined;
+      .prepare("SELECT status FROM cve_entries WHERE cve_id = ? AND tenant_id IS ?")
+      .get(kev.cveId, activeTenant()) as { status: string } | undefined;
     if (existing) continue;
 
     const remediation = await generateRemediation({
@@ -498,7 +532,7 @@ export async function runCVEScan(daysBack: number = 7): Promise<CVEScanResult> {
     };
 
     insertOrUpdate.run(
-      kev.cveId, kev.cveId, entry.title, entry.description, "critical",
+      `${activeTenant()}:${kev.cveId}`, activeTenant(), kev.cveId, entry.title, entry.description, "critical",
       9.0, kev.dueDate, JSON.stringify(["microsoft:windows"]), "CISA KEV",
       1, 95, profile.windowsCount, entry.remediation, entry.remediationType, "new"
     );
@@ -510,8 +544,8 @@ export async function runCVEScan(daysBack: number = 7): Promise<CVEScanResult> {
 
   // Log scan
   database
-    .prepare("INSERT INTO cve_scan_log (source, cves_found, cves_relevant, duration_ms) VALUES (?, ?, ?, ?)")
-    .run("NVD+CISA", nvdCves.length + cisaKev.length, newCves.length, durationMs);
+    .prepare("INSERT INTO cve_scan_log (source, cves_found, cves_relevant, duration_ms, tenant_id) VALUES (?, ?, ?, ?, ?)")
+    .run("NVD+CISA", nvdCves.length + cisaKev.length, newCves.length, durationMs, activeTenant());
 
   console.log(`[CVE] Scan complete: ${newCves.length} relevant CVEs found in ${durationMs}ms`);
 
@@ -539,8 +573,8 @@ export function getCVEs(options?: {
   limit?: number;
 }): CVEEntry[] {
   const database = getDb();
-  let query = "SELECT * FROM cve_entries WHERE 1=1";
-  const params: unknown[] = [];
+  let query = "SELECT * FROM cve_entries WHERE tenant_id IS ?";
+  const params: unknown[] = [activeTenant()];
 
   if (options?.status) {
     query += " AND status = ?";
@@ -568,8 +602,8 @@ export function getCVEs(options?: {
 export function updateCVEStatus(cveId: string, status: string): void {
   const database = getDb();
   database
-    .prepare("UPDATE cve_entries SET status = ?, dismissed_at = CASE WHEN ? = 'dismissed' THEN datetime('now') ELSE dismissed_at END WHERE cve_id = ?")
-    .run(status, status, cveId);
+    .prepare("UPDATE cve_entries SET status = ?, dismissed_at = CASE WHEN ? = 'dismissed' THEN datetime('now') ELSE dismissed_at END WHERE cve_id = ? AND tenant_id IS ?")
+    .run(status, status, cveId, activeTenant());
 }
 
 /**
@@ -596,8 +630,8 @@ export function getCVEStats(): {
     .get() as Record<string, number>;
 
   const lastScan = database
-    .prepare("SELECT scan_time FROM cve_scan_log ORDER BY scan_time DESC LIMIT 1")
-    .get() as { scan_time: string } | undefined;
+    .prepare("SELECT scan_time FROM cve_scan_log WHERE tenant_id IS ? ORDER BY scan_time DESC LIMIT 1")
+    .get(activeTenant()) as { scan_time: string } | undefined;
 
   return {
     totalTracked: counts.total || 0,

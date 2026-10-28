@@ -13,6 +13,7 @@ import Database from "better-sqlite3";
 import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
+import { activeTenant, ensureTenantColumn } from "../tenants/scope.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(__dirname, "..", "..", "data");
@@ -49,6 +50,11 @@ function getDb(): Database.Database {
     );
   `);
 
+  // Trends and snapshots describe one tenant’s estate. Blended across
+  // tenants they are not just wrong, they are plausible.
+  ensureTenantColumn(db, "metrics");
+  ensureTenantColumn(db, "snapshots");
+
   return db;
 }
 
@@ -58,8 +64,8 @@ function getDb(): Database.Database {
 export function recordMetric(name: string, value: number): void {
   const database = getDb();
   database
-    .prepare("INSERT INTO metrics (metric_name, metric_value) VALUES (?, ?)")
-    .run(name, value);
+    .prepare("INSERT INTO metrics (metric_name, metric_value, tenant_id) VALUES (?, ?, ?)")
+    .run(name, value, activeTenant());
 }
 
 /**
@@ -68,12 +74,12 @@ export function recordMetric(name: string, value: number): void {
 export function recordMetrics(metrics: Array<{ name: string; value: number }>): void {
   const database = getDb();
   const insert = database.prepare(
-    "INSERT INTO metrics (metric_name, metric_value) VALUES (?, ?)"
+    "INSERT INTO metrics (metric_name, metric_value, tenant_id) VALUES (?, ?, ?)"
   );
 
   const batch = database.transaction((items: Array<{ name: string; value: number }>) => {
     for (const item of items) {
-      insert.run(item.name, item.value);
+      insert.run(item.name, item.value, activeTenant());
     }
   });
 
@@ -95,10 +101,10 @@ export function getMetricTrend(
     .prepare(
       `SELECT timestamp, metric_value as value
        FROM metrics
-       WHERE metric_name = ? AND timestamp >= ?
+       WHERE tenant_id IS ? AND metric_name = ? AND timestamp >= ?
        ORDER BY timestamp ASC`
     )
-    .all(metricName, since.toISOString()) as Array<{ timestamp: string; value: number }>;
+    .all(activeTenant(), metricName, since.toISOString()) as Array<{ timestamp: string; value: number }>;
 
   return rows;
 }
@@ -123,11 +129,11 @@ export function getDailyTrend(
          MAX(metric_value) as max,
          COUNT(*) as count
        FROM metrics
-       WHERE metric_name = ? AND timestamp >= ?
+       WHERE tenant_id IS ? AND metric_name = ? AND timestamp >= ?
        GROUP BY date(timestamp)
        ORDER BY date ASC`
     )
-    .all(metricName, since.toISOString()) as Array<{
+    .all(activeTenant(), metricName, since.toISOString()) as Array<{
       date: string;
       avg: number;
       min: number;
@@ -144,8 +150,8 @@ export function getDailyTrend(
 export function getAvailableMetrics(): string[] {
   const database = getDb();
   const rows = database
-    .prepare("SELECT DISTINCT metric_name FROM metrics ORDER BY metric_name")
-    .all() as Array<{ metric_name: string }>;
+    .prepare("SELECT DISTINCT metric_name FROM metrics WHERE tenant_id IS ? ORDER BY metric_name")
+    .all(activeTenant()) as Array<{ metric_name: string }>;
   return rows.map((r) => r.metric_name);
 }
 
@@ -155,8 +161,8 @@ export function getAvailableMetrics(): string[] {
 export function recordSnapshot(data: Record<string, unknown>): void {
   const database = getDb();
   database
-    .prepare("INSERT INTO snapshots (data) VALUES (?)")
-    .run(JSON.stringify(data));
+    .prepare("INSERT INTO snapshots (data, tenant_id) VALUES (?, ?)")
+    .run(JSON.stringify(data), activeTenant());
 }
 
 /**
@@ -167,8 +173,8 @@ export function getSnapshots(
 ): Array<{ id: number; timestamp: string; data: Record<string, unknown> }> {
   const database = getDb();
   const rows = database
-    .prepare("SELECT id, timestamp, data FROM snapshots ORDER BY timestamp DESC LIMIT ?")
-    .all(limit) as Array<{ id: number; timestamp: string; data: string }>;
+    .prepare("SELECT id, timestamp, data FROM snapshots WHERE tenant_id IS ? ORDER BY timestamp DESC LIMIT ?")
+    .all(activeTenant(), limit) as Array<{ id: number; timestamp: string; data: string }>;
 
   return rows.map((r) => ({
     id: r.id,

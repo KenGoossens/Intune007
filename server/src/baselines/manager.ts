@@ -9,6 +9,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
 import { getGraphClient, fetchWithPagination } from "../graph/client.js";
+import { activeTenant, ensureTenantColumn } from "../tenants/scope.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(__dirname, "..", "..", "data");
@@ -30,6 +31,10 @@ function getDb(): Database.Database {
       data TEXT NOT NULL
     );
   `);
+  // A baseline is a photograph of one tenant’s policy. Comparing it against
+  // another tenant’s current state would report drift that does not exist.
+  ensureTenantColumn(db, "snapshots");
+
   return db;
 }
 
@@ -51,7 +56,7 @@ export async function takeSnapshot(name: string, description: string = ""): Prom
 
   const data = { compliancePolicies: compliance.items, configProfiles: configs.items, caPolicies: ca.items };
   const database = getDb();
-  const result = database.prepare("INSERT INTO snapshots (name, description, data) VALUES (?, ?, ?)").run(name, description, JSON.stringify(data));
+  const result = database.prepare("INSERT INTO snapshots (name, description, data, tenant_id) VALUES (?, ?, ?, ?)").run(name, description, JSON.stringify(data), activeTenant());
 
   return {
     id: result.lastInsertRowid as number, name, description,
@@ -62,7 +67,7 @@ export async function takeSnapshot(name: string, description: string = ""): Prom
 
 export function listSnapshots(): BaselineSnapshot[] {
   const database = getDb();
-  const rows = database.prepare("SELECT id, name, description, created_at, data FROM snapshots ORDER BY created_at DESC").all() as Array<{ id: number; name: string; description: string; created_at: string; data: string }>;
+  const rows = database.prepare("SELECT id, name, description, created_at, data FROM snapshots WHERE tenant_id IS ? ORDER BY created_at DESC").all(activeTenant()) as Array<{ id: number; name: string; description: string; created_at: string; data: string }>;
   return rows.map((r) => {
     const d = JSON.parse(r.data);
     return { id: r.id, name: r.name, description: r.description, createdAt: r.created_at,
@@ -71,7 +76,7 @@ export function listSnapshots(): BaselineSnapshot[] {
 }
 
 export function deleteSnapshot(id: number): boolean {
-  return getDb().prepare("DELETE FROM snapshots WHERE id = ?").run(id).changes > 0;
+  return getDb().prepare("DELETE FROM snapshots WHERE id = ? AND tenant_id IS ?").run(id, activeTenant()).changes > 0;
 }
 
 export interface DriftResult {
@@ -84,7 +89,7 @@ export interface DriftResult {
 
 export async function compareWithSnapshot(snapshotId: number): Promise<DriftResult> {
   const database = getDb();
-  const row = database.prepare("SELECT * FROM snapshots WHERE id = ?").get(snapshotId) as { id: number; name: string; created_at: string; data: string } | undefined;
+  const row = database.prepare("SELECT * FROM snapshots WHERE id = ? AND tenant_id IS ?").get(snapshotId, activeTenant()) as { id: number; name: string; created_at: string; data: string } | undefined;
   if (!row) throw new Error("Snapshot not found");
 
   const saved = JSON.parse(row.data);

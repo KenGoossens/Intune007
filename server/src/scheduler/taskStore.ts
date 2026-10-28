@@ -12,6 +12,7 @@ import Database from "better-sqlite3";
 import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
+import { activeTenant, ensureTenantColumn } from "../tenants/scope.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.join(__dirname, "..", "..", "data");
@@ -56,10 +57,16 @@ function getDb(): Database.Database {
     );
   `);
 
+  // A scheduled prompt asks a question of one directory. Run against another
+  // tenant it answers about the wrong customer, unattended and on a timer.
+  ensureTenantColumn(db, "tasks", { adoptInto: activeTenant() });
+
   return db;
 }
 
 export interface ScheduledTask {
+  /** The tenant this schedule was created for; it runs against that one. */
+  tenantId?: string;
   id: string;
   name: string;
   prompt: string;
@@ -85,6 +92,7 @@ export interface TaskExecution {
 
 type TaskRow = {
   id: string;
+  tenant_id: string | null;
   name: string;
   prompt: string;
   schedule: string;
@@ -100,6 +108,7 @@ type TaskRow = {
 function rowToTask(row: TaskRow): ScheduledTask {
   return {
     id: row.id,
+    tenantId: row.tenant_id ?? undefined,
     name: row.name,
     prompt: row.prompt,
     schedule: row.schedule,
@@ -129,10 +138,10 @@ export function createTask(params: {
 
   database
     .prepare(
-      `INSERT INTO tasks (id, name, prompt, schedule, interval_minutes)
-       VALUES (?, ?, ?, ?, ?)`
+      `INSERT INTO tasks (id, name, prompt, schedule, interval_minutes, tenant_id)
+       VALUES (?, ?, ?, ?, ?, ?)`
     )
-    .run(id, params.name, params.prompt, schedule, intervalMinutes);
+    .run(id, params.name, params.prompt, schedule, intervalMinutes, activeTenant());
 
   return {
     id,
@@ -155,8 +164,8 @@ export function createTask(params: {
 export function listTasks(): ScheduledTask[] {
   const database = getDb();
   const rows = database
-    .prepare("SELECT * FROM tasks ORDER BY created_at DESC")
-    .all() as TaskRow[];
+    .prepare("SELECT * FROM tasks WHERE tenant_id IS ? ORDER BY created_at DESC")
+    .all(activeTenant()) as TaskRow[];
   return rows.map(rowToTask);
 }
 
@@ -168,7 +177,7 @@ export function updateTask(
   updates: Partial<Pick<ScheduledTask, "name" | "prompt" | "schedule" | "intervalMinutes" | "enabled">>
 ): ScheduledTask | null {
   const database = getDb();
-  const existing = database.prepare("SELECT * FROM tasks WHERE id = ?").get(id) as TaskRow | undefined;
+  const existing = database.prepare("SELECT * FROM tasks WHERE id = ? AND tenant_id IS ?").get(id, activeTenant()) as TaskRow | undefined;
   if (!existing) return null;
 
   const name = updates.name ?? existing.name;
@@ -185,7 +194,7 @@ export function updateTask(
     )
     .run(name, prompt, schedule, intervalMinutes, enabled, id);
 
-  const updated = database.prepare("SELECT * FROM tasks WHERE id = ?").get(id) as TaskRow;
+  const updated = database.prepare("SELECT * FROM tasks WHERE id = ? AND tenant_id IS ?").get(id, activeTenant()) as TaskRow;
   return rowToTask(updated);
 }
 
@@ -194,7 +203,7 @@ export function updateTask(
  */
 export function deleteTask(id: string): boolean {
   const database = getDb();
-  const result = database.prepare("DELETE FROM tasks WHERE id = ?").run(id);
+  const result = database.prepare("DELETE FROM tasks WHERE id = ? AND tenant_id IS ?").run(id, activeTenant());
   return result.changes > 0;
 }
 
@@ -250,6 +259,9 @@ export function getDueTasks(): ScheduledTask[] {
   const database = getDb();
   const rows = database
     .prepare(
+      // Deliberately NOT filtered to the active tenant: a schedule must keep
+      // running whichever tenant happens to be selected in the UI. The runner
+      // switches to each task's own tenant instead.
       `SELECT * FROM tasks
        WHERE enabled = 1
          AND (last_run IS NULL
