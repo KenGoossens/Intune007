@@ -215,6 +215,9 @@ export function demoResponse(
         simulated: true,
       };
     }
+    if (path.includes("CreateCCR")) {
+      return { ReturnValue: 0, simulated: true };
+    }
     if (path.includes("AddMembershipRule")) {
       return { ReturnValue: 0, QueryID: 0, simulated: true };
     }
@@ -377,6 +380,7 @@ export function demoResponse(
             SMBIOSGUID: "4C4C4544-0032-1234-5678-9ABCDEF01234",
             DistinguishedName: `CN=${found.Name},OU=Workstations,DC=AD,DC=CONTOSO-DEMO,DC=LOCAL`,
             SMSAssignedSites: [SITE.SiteCode],
+            SystemRoles: ["SMS Client"],
           },
         ],
       };

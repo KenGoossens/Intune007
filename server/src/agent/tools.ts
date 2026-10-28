@@ -1991,6 +1991,25 @@ export const agentTools: ChatCompletionTool[] = [
   {
     type: "function",
     function: {
+      name: "install_configmgr_client",
+      description:
+        "DESTRUCTIVE — Install the Configuration Manager client (agent) on a device via client push. Requires the AdminService connector and a confirmation token. Before asking the user to confirm, state plainly that a client push CANNOT BE CANCELLED and that Configuration Manager retries failures for up to seven days. Success means the site accepted the request, NOT that the client installed; completion is confirmed in ccmsetup.log on the device. The device must already be a discovered resource. Refuses a device that already has a client unless forceReinstall is set, and refuses domain controllers.",
+      parameters: {
+        type: "object",
+        properties: {
+          deviceName: { type: "string", description: "ConfigMgr device name to install the client on." },
+          forceReinstall: {
+            type: "boolean",
+            description: "Reinstall even if a client is already present. Only set when the user explicitly asks.",
+          },
+        },
+        required: ["deviceName"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "get_configmgr_device_card",
       description:
         "The Configuration Manager record for one device: OS, client version and health, AD site, network addresses, last logon, and the collections it belongs to. Use this for 'tell me about ConfigMgr device X'. A device with an aadDeviceId is Entra-joined and may also exist in Intune.",

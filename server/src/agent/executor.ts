@@ -113,6 +113,7 @@ import {
   getApplicationDetail,
   getConfigMgrDeviceCard,
 } from "../configmgr/adminService.js";
+import { installConfigMgrClient, preflightClientPush } from "../configmgr/clientPush.js";
 import { computeSecurityPosture } from "../routes/securityPosture.js";
 import { getAppHealthData } from "../routes/appHealth.js";
 import { checkAutopilotReadinessCore, ingestAutopilotCsv } from "../routes/autopilotReadiness.js";
@@ -1238,6 +1239,15 @@ export async function executeTool(
               }
             : {}),
         };
+      }
+
+      case "install_configmgr_client": {
+        if (!isConfigMgrConfigured()) return configMgrNotConnected();
+        const pushed = await installConfigMgrClient({
+          deviceName: String(args.deviceName),
+          forceReinstall: args.forceReinstall === true,
+        });
+        return { data: [pushed], totalCount: 1 };
       }
 
       case "get_configmgr_device_card": {

@@ -558,6 +558,19 @@ export function wmiInstanceMethodPath(
   return `wmi/${className}('${String(key).replace(/'/g, "''")}')/AdminService.${method}`;
 }
 
+/**
+ * Invoke a WMI action by path, e.g. "SMS_Collection.CreateCCR".
+ * Thin wrapper so callers outside this module can reach the action routes
+ * without re-implementing auth, the base URL or the demo interception.
+ */
+export async function postWmiAction(
+  actionPath: string,
+  body: Record<string, unknown>
+): Promise<Record<string, unknown>> {
+  const cm = requireConnected();
+  return adminPost<Record<string, unknown>>(cm, `wmi/${actionPath}`, body);
+}
+
 /** OData discriminator for the derived direct-membership rule type. */
 export const SMS_COLLECTION_RULE_DIRECT_TYPE = "#AdminService.SMS_CollectionRuleDirect";
 
@@ -860,6 +873,7 @@ const DEVICE_CARD_SELECT = [
   "Build", "ClientVersion", "Client", "Active", "Obsolete", "IsVirtualMachine",
   "ADSiteName", "IPAddresses", "MACAddresses", "LastLogonTimestamp", "CreationDate",
   "CPUType", "SMBIOSGUID", "DistinguishedName", "SMSAssignedSites", "AADDeviceID",
+  "SystemRoles",
 ].join(",");
 
 function strArray(v: unknown): string[] {
@@ -921,6 +935,7 @@ export async function getConfigMgrDeviceCard(
     smBiosGuid: String(r.SMBIOSGUID ?? ""),
     distinguishedName: String(r.DistinguishedName ?? ""),
     assignedSites: strArray(r.SMSAssignedSites),
+    systemRoles: strArray(r.SystemRoles),
     aadDeviceId: r.AADDeviceID ? String(r.AADDeviceID) : undefined,
     collections,
   };

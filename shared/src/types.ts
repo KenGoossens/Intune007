@@ -294,7 +294,8 @@ export type DataPanelType =
   | "configmgr_collection_members"
   | "configmgr_deployment_status"
   | "configmgr_application_detail"
-  | "configmgr_device_card";
+  | "configmgr_device_card"
+  | "configmgr_client_push";
 
 export interface DataPanel {
   id: string;
@@ -407,6 +408,7 @@ export const TOOL_TO_PANEL_TYPE: Record<string, DataPanelType> = {
   get_configmgr_deployment_status: "configmgr_deployment_status",
   get_configmgr_application_detail: "configmgr_application_detail",
   get_configmgr_device_card: "configmgr_device_card",
+  install_configmgr_client: "configmgr_client_push",
 };
 
 export const TOOL_TO_PANEL_TITLE: Record<string, string> = {
@@ -508,6 +510,7 @@ export const TOOL_TO_PANEL_TITLE: Record<string, string> = {
   get_configmgr_deployment_status: "ConfigMgr Deployment Status",
   get_configmgr_application_detail: "ConfigMgr Application Detail",
   get_configmgr_device_card: "ConfigMgr Device",
+  install_configmgr_client: "ConfigMgr Client Push",
 };
 
 /**
@@ -588,6 +591,7 @@ export const PANEL_TO_TOOLS: Record<string, string[]> = {
     "add_configmgr_collection_member", "import_configmgr_machine_entry",
     "get_configmgr_collection_members", "get_configmgr_deployment_status",
     "get_configmgr_application_detail", "get_configmgr_device_card",
+    "install_configmgr_client",
   ],
 };
 
@@ -796,6 +800,8 @@ export interface ConfigMgrDeviceCard {
   smBiosGuid: string;
   distinguishedName: string;
   assignedSites: string[];
+  /** Site system roles, e.g. "Domain Controller" — client push treats a DC specially. */
+  systemRoles: string[];
   /** Present when the device is Entra-joined — implies it may also be in Intune. */
   aadDeviceId?: string;
   collections: { collectionId: string; name: string }[];
