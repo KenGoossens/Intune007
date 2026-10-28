@@ -3,6 +3,7 @@ import {
   Server,
   RefreshCw,
   Loader2,
+  Monitor,
   ChevronDown,
   ChevronRight,
   Cloud,
@@ -27,6 +28,67 @@ import { useConfigMgrStore } from "../stores/configMgrStore.ts";
 import { DeviceDrillLink, UserDrillLink } from "./DrillLinks.tsx";
 import ConfigMgrConnectWizard from "./ConfigMgrConnectWizard.tsx";
 import type { ComanagedDeviceInfo } from "@intune-agent/shared";
+
+/**
+ * A ConfigMgr device name that opens its ConfigMgr context rather than the
+ * Intune Device Card: these devices only exist in Intune when co-managed, so
+ * the Intune card is a dead end for a ConfigMgr-only device.
+ */
+function ConfigMgrDeviceName({ name }: { name: string }) {
+  const {
+    deviceDetailName,
+    deviceDetailLoading,
+    deviceDetailError,
+    deviceDetailCollections,
+    toggleDeviceDetail,
+  } = useConfigMgrStore();
+  const open = deviceDetailName === name;
+
+  return (
+    <>
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          void toggleDeviceDetail(name);
+        }}
+        className="text-[11px] text-left text-brand-400 hover:underline inline-flex items-center gap-1"
+      >
+        <Monitor size={11} className="shrink-0 text-gray-500" />
+        {name}
+      </button>
+      {open && (
+        <div className="mt-1 ml-4 pl-2 border-l border-gray-700/60">
+          {deviceDetailLoading ? (
+            <span className="text-[10px] text-gray-500">Loading ConfigMgr detail…</span>
+          ) : deviceDetailError ? (
+            <span className="text-[10px] text-red-400">{deviceDetailError}</span>
+          ) : deviceDetailCollections.length === 0 ? (
+            <span className="text-[10px] text-gray-600">
+              No collection membership returned.
+            </span>
+          ) : (
+            <>
+              <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">
+                Member of {deviceDetailCollections.length} collection(s)
+              </p>
+              <div className="flex flex-wrap gap-1">
+                {deviceDetailCollections.map((c) => (
+                  <span
+                    key={c.collectionId}
+                    className="text-[10px] px-1.5 py-0.5 rounded bg-gray-800/60 text-gray-300"
+                  >
+                    {c.name}
+                    <span className="text-gray-600"> · {c.collectionId}</span>
+                  </span>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
 
 /** Shared loading / error / empty wrapper for an expanded drill-down row. */
 function DetailBody({
@@ -804,10 +866,9 @@ function SiteTab() {
                                       key={m.resourceId}
                                       className="flex items-center gap-2 px-2 py-1.5 rounded bg-gray-800/40"
                                     >
-                                      <DeviceDrillLink
-                                        name={m.name}
-                                        className="text-[11px] flex-1"
-                                      />
+                                      <div className="flex-1 min-w-0">
+                                        <ConfigMgrDeviceName name={m.name} />
+                                      </div>
                                       <span className="text-[10px] text-gray-500">
                                         {m.isActive ? "Active" : "Inactive"}
                                       </span>
@@ -897,10 +958,9 @@ function SiteTab() {
                                       className="px-2 py-1.5 rounded bg-gray-800/40"
                                     >
                                       <div className="flex items-center gap-2">
-                                        <DeviceDrillLink
-                                          name={s.machineName}
-                                          className="text-[11px] flex-1"
-                                        />
+                                        <div className="flex-1 min-w-0">
+                                          <ConfigMgrDeviceName name={s.machineName} />
+                                        </div>
                                         <span
                                           className={`text-[10px] ${
                                             s.status === "Error"

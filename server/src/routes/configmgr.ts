@@ -17,6 +17,7 @@ import {
   getCollectionMembers,
   getDeploymentStatus,
   getApplicationDetail,
+  getDeviceCollections,
 } from "../configmgr/adminService.js";
 import { triggerConfigMgrClientAction } from "../configmgr/comanagement.js";
 import {
@@ -255,6 +256,29 @@ router.get("/applications/:ciId", async (req: Request, res: Response) => {
       return;
     }
     res.json({ configured: true, items: [item], totalCount: 1 });
+  } catch (err) {
+    res.status(502).json({ error: sanitizeErrorMessage(String(err)) });
+  }
+});
+
+/**
+ * GET /api/configmgr/devices/:deviceName/collections
+ * ConfigMgr context for one device. ConfigMgr devices only exist in Intune when
+ * they are co-managed, so this is the drill-down that always resolves.
+ */
+router.get("/devices/:deviceName/collections", async (req: Request, res: Response) => {
+  if (!isConfigMgrConfigured()) {
+    res.json(NOT_CONFIGURED);
+    return;
+  }
+  try {
+    const rows = await getDeviceCollections([String(req.params.deviceName)]);
+    const row = rows[0];
+    if (!row || !row.found) {
+      res.status(404).json({ error: `Device '${req.params.deviceName}' was not found in Configuration Manager.` });
+      return;
+    }
+    res.json({ configured: true, items: row.collections, totalCount: row.collections.length, resourceId: row.resourceId });
   } catch (err) {
     res.status(502).json({ error: sanitizeErrorMessage(String(err)) });
   }

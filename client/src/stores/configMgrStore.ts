@@ -70,6 +70,13 @@ interface ConfigMgrState {
   fetchApplicationDetail: (ciId: string) => Promise<void>;
   clearDetail: () => void;
 
+  // ConfigMgr context for one device (ConfigMgr devices are only in Intune when co-managed)
+  deviceDetailName: string | null;
+  deviceDetailLoading: boolean;
+  deviceDetailError: string | null;
+  deviceDetailCollections: { collectionId: string; name: string }[];
+  toggleDeviceDetail: (deviceName: string) => Promise<void>;
+
   // Demo mode (simulated site data; a real connection always takes precedence)
   demoMode: boolean;
   demoSimulating: boolean;
@@ -180,6 +187,39 @@ export const useConfigMgrStore = create<ConfigMgrState>((set, get) => ({
   deploymentStatus: [],
   applicationDetail: null,
 
+  deviceDetailName: null,
+  deviceDetailLoading: false,
+  deviceDetailError: null,
+  deviceDetailCollections: [],
+
+  toggleDeviceDetail: async (deviceName) => {
+    if (get().deviceDetailName === deviceName) {
+      set({ deviceDetailName: null, deviceDetailError: null, deviceDetailCollections: [] });
+      return;
+    }
+    set({
+      deviceDetailName: deviceName,
+      deviceDetailLoading: true,
+      deviceDetailError: null,
+      deviceDetailCollections: [],
+    });
+    try {
+      const res = await fetch(
+        `/api/configmgr/devices/${encodeURIComponent(deviceName)}/collections`
+      );
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      set({ deviceDetailCollections: data.items ?? [] });
+    } catch (err) {
+      set({
+        deviceDetailError:
+          err instanceof Error ? err.message : "Failed to load ConfigMgr device detail",
+      });
+    } finally {
+      set({ deviceDetailLoading: false });
+    }
+  },
+
   clearDetail: () =>
     set({
       detailKey: null,
@@ -187,6 +227,9 @@ export const useConfigMgrStore = create<ConfigMgrState>((set, get) => ({
       collectionMembers: [],
       deploymentStatus: [],
       applicationDetail: null,
+      deviceDetailName: null,
+      deviceDetailCollections: [],
+      deviceDetailError: null,
     }),
 
   fetchCollectionMembers: async (collectionId) => {
