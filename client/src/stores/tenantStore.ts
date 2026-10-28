@@ -10,6 +10,7 @@ interface TenantState {
   disconnectTenant: (tenantId: string) => Promise<void>;
   beginConsent: (tenantId: string, friendlyName?: string) => Promise<{ url: string }>;
   renameTenant: (tenantId: string, friendlyName: string | null) => Promise<void>;
+  addConsentedTenant: (tenantId: string, friendlyName?: string) => Promise<TenantInfo>;
 }
 
 export const useTenantStore = create<TenantState>((set, get) => ({
@@ -68,6 +69,18 @@ export const useTenantStore = create<TenantState>((set, get) => ({
       throw new Error(body.error || `HTTP ${res.status}`);
     }
     return (await res.json()) as { url: string };
+  },
+
+  async addConsentedTenant(tenantId, friendlyName) {
+    const res = await fetch("/api/tenants", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tenantId, friendlyName }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
+    await get().fetchTenants();
+    return body as TenantInfo;
   },
 
   async renameTenant(tenantId, friendlyName) {

@@ -11,7 +11,7 @@ const ts = require('typescript');
  * silently picking one of two matching tenants runs the query against the wrong
  * customer's directory, and the answer looks perfectly normal.
  */
-function loadTenantManager({ tenants = [], orgNames = {}, failures = {}, errorMessage = null } = {}) {
+function loadTenantManager({ tenants = [], orgNames = {}, orgIds = {}, failures = {}, errorMessage = null } = {}) {
   const source = fs.readFileSync(path.join(__dirname, '../src/graph/tenantManager.ts'), 'utf8');
   const { outputText } = ts.transpileModule(source, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
@@ -63,7 +63,7 @@ function loadTenantManager({ tenants = [], orgNames = {}, failures = {}, errorMe
       if (attempts.filter((a) => a === tenantId).length <= allowedFailures) {
         throw new Error("AADSTS700016: Application with identifier 'x' was not found in the directory");
       }
-      return { value: [{ displayName: orgNames[tenantId] ?? 'Org' }] };
+      return { value: [{ displayName: orgNames[tenantId] ?? 'Org', id: orgIds[tenantId] ?? tenantId }] };
     },
   };
 
@@ -219,4 +219,56 @@ test('renaming a connected tenant takes effect, and an unknown one reports it', 
   assert.equal(renamed.friendlyName, 'MVN');
   assert.equal(api.resolveTenantRef('MVN').tenant.displayName, 'Mauvlan Ltd');
   assert.equal(api.renameTenant('nope', 'X'), null);
+});
+
+// ─── Recovery when the consent callback never arrives ───
+
+test('a tenant added by domain is stored under the GUID the directory reports', async () => {
+  const { api } = loadTenantManager({
+    tenants: [],
+    orgNames: { 'mauvlan.onmicrosoft.com': 'Mauvlan Systems' },
+    orgIds: { 'mauvlan.onmicrosoft.com': MVN_ID },
+  });
+
+  const info = await api.registerTenant('mauvlan.onmicrosoft.com', 'Mauvlan');
+
+  assert.equal(info.tenantId, MVN_ID, 'a domain authenticates but is not the tenant identity');
+  assert.equal(info.displayName, 'Mauvlan Systems');
+  assert.equal(info.friendlyName, 'Mauvlan');
+});
+
+test('the same tenant added by domain and by GUID is one row, not two', async () => {
+  const { api } = loadTenantManager({
+    tenants: [],
+    orgNames: { 'mauvlan.onmicrosoft.com': 'Mauvlan Systems', [MVN_ID]: 'Mauvlan Systems' },
+    orgIds: { 'mauvlan.onmicrosoft.com': MVN_ID },
+  });
+
+  await api.registerTenant('mauvlan.onmicrosoft.com', 'Mauvlan');
+  await api.registerTenant(MVN_ID);
+
+  // initialize() seeds the env-configured primary tenant, so count only the
+  // rows this test created.
+  const mauvlanRows = api.listConfiguredTenants().filter((t) => t.tenantId === MVN_ID);
+  assert.equal(mauvlanRows.length, 1, 'duplicate rows would make the name ambiguous');
+  assert.equal(
+    api.listConfiguredTenants().some((t) => t.tenantId === 'mauvlan.onmicrosoft.com'),
+    false,
+    'the domain must not survive as a second identity for the same tenant'
+  );
+  assert.equal(api.resolveTenantRef('Mauvlan').tenant.tenantId, MVN_ID);
+});
+
+test('recovery cannot invent a tenant that never consented', async () => {
+  const { api } = loadTenantManager({
+    tenants: [],
+    errorMessage: 'AADSTS700016: Application with identifier was not found in the directory',
+  });
+
+  await assert.rejects(() => api.registerTenant('never-consented.onmicrosoft.com'));
+  assert.equal(
+    api.listConfiguredTenants().some((t) => t.tenantId.includes('never-consented')),
+    false,
+    'a failed probe must register nothing'
+  );
 });

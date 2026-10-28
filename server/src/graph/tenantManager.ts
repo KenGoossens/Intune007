@@ -227,13 +227,19 @@ export function listConfiguredTenants(): TenantInfo[] {
  * This both verifies admin consent succeeded and gives us a friendly label.
  */
 export async function registerTenant(
-  tenantId: string,
+  tenantRef: string,
   friendlyName?: string | null
 ): Promise<TenantInfo> {
   initialize();
 
-  const probe = await probeTenantName(tenantId);
+  const probe = await probeTenantName(tenantRef);
   if ("error" in probe) throw new Error(probe.error);
+
+  // The caller may have passed a domain ("contoso.onmicrosoft.com"), which
+  // authenticates perfectly well but is not the tenant's identity. Store the
+  // GUID the directory reports, so the same tenant added twice by two
+  // different names is still one row.
+  const tenantId = probe.tenantId || tenantRef;
 
   addTenant(tenantId, probe.displayName, friendlyName);
   clients.delete(tenantId);
@@ -255,17 +261,22 @@ export async function registerTenant(
  */
 async function probeTenantName(
   tenantId: string
-): Promise<{ displayName: string } | { error: string }> {
+): Promise<{ displayName: string; tenantId: string } | { error: string }> {
   const delaysMs = [0, 2_000, 4_000, 8_000];
   let last = "";
 
   for (const delay of delaysMs) {
     if (delay) await new Promise((r) => setTimeout(r, delay));
     try {
-      const org = await buildClient(tenantId).api("/organization").select("displayName").get();
-      const name = org?.value?.[0]?.displayName;
-      if (name) return { displayName: String(name) };
-      return { displayName: tenantId };
+      const org = await buildClient(tenantId)
+        .api("/organization")
+        .select("displayName,id")
+        .get();
+      const row = org?.value?.[0];
+      return {
+        displayName: row?.displayName ? String(row.displayName) : tenantId,
+        tenantId: row?.id ? String(row.id) : tenantId,
+      };
     } catch (err) {
       last = err instanceof Error ? err.message : String(err);
       // Only propagation-shaped failures are worth waiting on. A genuine

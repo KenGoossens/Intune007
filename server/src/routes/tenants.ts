@@ -95,6 +95,40 @@ router.delete("/:tenantId", (req, res) => {
 });
 
 /**
+ * POST /api/tenants — register a tenant that has already granted consent.
+ *
+ * Consent and registration are two separate things: the admin grants consent
+ * in Entra, and this app only learns about it when the popup redirects back.
+ * Anything that interrupts that round-trip — a closed popup, a blocked
+ * redirect, a server restart that loses the state token — throws away a
+ * consent that actually succeeded, with no way to retry but to consent again.
+ *
+ * This is the recovery path. It proves consent by acquiring a token and
+ * reading the directory, which is the same evidence the callback relies on,
+ * so it cannot register a tenant that has not really consented.
+ */
+router.post("/", async (req, res) => {
+  const raw = String((req.body ?? {}).tenantId ?? "").trim();
+  // A domain is accepted as well as a GUID; the directory tells us the real ID.
+  if (!isValidUUID(raw) && !/^[\w.-]+\.[\w.-]+$/.test(raw)) {
+    return res.status(400).json({ error: "Provide a tenant ID (GUID) or a domain." });
+  }
+  const friendlyName =
+    typeof (req.body ?? {}).friendlyName === "string"
+      ? String((req.body as { friendlyName: string }).friendlyName).trim().slice(0, 64)
+      : "";
+
+  try {
+    const tenant = await registerTenant(raw, friendlyName || null);
+    res.json(tenant);
+  } catch (err) {
+    res.status(400).json({
+      error: sanitizeErrorMessage(err instanceof Error ? err.message : String(err)),
+    });
+  }
+});
+
+/**
  * PATCH /api/tenants/:tenantId — set or clear the operator-chosen name.
  *
  * The name is how a prompt addresses this tenant ("in Mauvlan"), so it is

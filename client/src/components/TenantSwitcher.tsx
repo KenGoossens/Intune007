@@ -12,7 +12,7 @@ interface ConsentMessage {
 }
 
 export default function TenantSwitcher() {
-  const { tenants, loading, fetchTenants, switchTenant, disconnectTenant, beginConsent, renameTenant } = useTenantStore();
+  const { tenants, loading, fetchTenants, switchTenant, disconnectTenant, beginConsent, renameTenant, addConsentedTenant } = useTenantStore();
   const [open, setOpen] = useState(false);
   const [showConnect, setShowConnect] = useState(false);
   const [tenantInput, setTenantInput] = useState("");
@@ -63,14 +63,40 @@ export default function TenantSwitcher() {
   useEffect(() => {
     if (!connecting) return;
     const interval = setInterval(() => {
-      fetchTenants();
+      void fetchTenants();
       if (popupRef.current?.closed) {
         setConnecting(false);
         clearInterval(interval);
+        // Consent can succeed while the redirect back here does not — a
+        // blocked redirect, a popup closed on the "approved" screen, a server
+        // restart that forgot the state token. The grant is real either way,
+        // so ask the directory instead of throwing the consent away and
+        // making someone approve 50 permissions a second time.
+        void recoverMissedConsent();
       }
     }, 2000);
     return () => clearInterval(interval);
   }, [connecting, fetchTenants]);
+
+  async function recoverMissedConsent() {
+    const target = tenantInput.trim();
+    if (!target) return; // Nothing to probe: the admin picked the tenant at sign-in.
+    const before = useTenantStore.getState().tenants.length;
+    await fetchTenants();
+    if (useTenantStore.getState().tenants.length > before) return; // The callback worked.
+
+    try {
+      const tenant = await addConsentedTenant(target, friendlyInput.trim() || undefined);
+      setStatusMsg({
+        kind: "ok",
+        text: `Connected: ${tenant.friendlyName || tenant.displayName}. The consent window did not report back, so this was confirmed directly with the directory.`,
+      });
+      setShowConnect(false);
+    } catch {
+      // Consent genuinely did not complete, or was declined. The dialog stays
+      // open with whatever was typed, so it can simply be retried.
+    }
+  }
 
   const active = tenants.find((t) => t.isActive);
 
