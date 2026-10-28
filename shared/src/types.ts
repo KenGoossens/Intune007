@@ -293,7 +293,8 @@ export type DataPanelType =
   | "configmgr_machine_entry"
   | "configmgr_collection_members"
   | "configmgr_deployment_status"
-  | "configmgr_application_detail";
+  | "configmgr_application_detail"
+  | "configmgr_device_card";
 
 export interface DataPanel {
   id: string;
@@ -405,6 +406,7 @@ export const TOOL_TO_PANEL_TYPE: Record<string, DataPanelType> = {
   get_configmgr_collection_members: "configmgr_collection_members",
   get_configmgr_deployment_status: "configmgr_deployment_status",
   get_configmgr_application_detail: "configmgr_application_detail",
+  get_configmgr_device_card: "configmgr_device_card",
 };
 
 export const TOOL_TO_PANEL_TITLE: Record<string, string> = {
@@ -505,6 +507,7 @@ export const TOOL_TO_PANEL_TITLE: Record<string, string> = {
   get_configmgr_collection_members: "ConfigMgr Collection Members",
   get_configmgr_deployment_status: "ConfigMgr Deployment Status",
   get_configmgr_application_detail: "ConfigMgr Application Detail",
+  get_configmgr_device_card: "ConfigMgr Device",
 };
 
 /**
@@ -584,7 +587,7 @@ export const PANEL_TO_TOOLS: Record<string, string[]> = {
     "get_configmgr_device_count", "get_configmgr_device_collections",
     "add_configmgr_collection_member", "import_configmgr_machine_entry",
     "get_configmgr_collection_members", "get_configmgr_deployment_status",
-    "get_configmgr_application_detail",
+    "get_configmgr_application_detail", "get_configmgr_device_card",
   ],
 };
 
@@ -769,6 +772,33 @@ export interface ConfigMgrDeploymentStatusRow {
   errorMeaning?: string;
   errorRemediation?: string;
   errorSource?: string;
+}
+
+/** A ConfigMgr device record, the ConfigMgr equivalent of the Intune device card. */
+export interface ConfigMgrDeviceCard {
+  resourceId: number;
+  name: string;
+  netbiosName: string;
+  domain: string;
+  operatingSystem: string;
+  build: string;
+  clientVersion: string;
+  isClient: boolean;
+  isActive: boolean;
+  isObsolete: boolean;
+  isVirtualMachine: boolean;
+  adSiteName: string;
+  ipAddresses: string[];
+  macAddresses: string[];
+  lastLogon: string;
+  createdDate: string;
+  cpuType: string;
+  smBiosGuid: string;
+  distinguishedName: string;
+  assignedSites: string[];
+  /** Present when the device is Entra-joined — implies it may also be in Intune. */
+  aadDeviceId?: string;
+  collections: { collectionId: string; name: string }[];
 }
 
 /** Detail for a single ConfigMgr application. */

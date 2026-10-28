@@ -111,6 +111,7 @@ import {
   getCollectionMembers,
   getDeploymentStatus,
   getApplicationDetail,
+  getConfigMgrDeviceCard,
 } from "../configmgr/adminService.js";
 import { computeSecurityPosture } from "../routes/securityPosture.js";
 import { getAppHealthData } from "../routes/appHealth.js";
@@ -1237,6 +1238,15 @@ export async function executeTool(
               }
             : {}),
         };
+      }
+
+      case "get_configmgr_device_card": {
+        if (!isConfigMgrConfigured()) return configMgrNotConnected();
+        const card = await getConfigMgrDeviceCard(String(args.deviceName));
+        if (!card) {
+          return { data: [], error: `No ConfigMgr record found for device '${args.deviceName}'.` };
+        }
+        return { data: [card], totalCount: 1 };
       }
 
       case "get_configmgr_application_detail": {

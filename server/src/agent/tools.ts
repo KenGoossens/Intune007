@@ -1991,6 +1991,21 @@ export const agentTools: ChatCompletionTool[] = [
   {
     type: "function",
     function: {
+      name: "get_configmgr_device_card",
+      description:
+        "The Configuration Manager record for one device: OS, client version and health, AD site, network addresses, last logon, and the collections it belongs to. Use this for 'tell me about ConfigMgr device X'. A device with an aadDeviceId is Entra-joined and may also exist in Intune.",
+      parameters: {
+        type: "object",
+        properties: {
+          deviceName: { type: "string", description: "ConfigMgr device name, e.g. 'MVN-MECM'." },
+        },
+        required: ["deviceName"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "get_configmgr_application_detail",
       description:
         "Detail for one Configuration Manager application: description, version, publisher, deployment count, devices with the app and devices with failures.",

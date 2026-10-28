@@ -25,23 +25,36 @@ import {
   Play,
 } from "lucide-react";
 import { useConfigMgrStore } from "../stores/configMgrStore.ts";
+import { useNavigationStore } from "../stores/navigationStore.ts";
 import { DeviceDrillLink, UserDrillLink } from "./DrillLinks.tsx";
 import ConfigMgrConnectWizard from "./ConfigMgrConnectWizard.tsx";
 import type { ComanagedDeviceInfo } from "@intune-agent/shared";
 
+function Fact({ label, value }: { label: string; value: string }) {
+  if (!value) return null;
+  return (
+    <span className="text-gray-500">
+      {label}: <span className="text-gray-300">{value}</span>
+    </span>
+  );
+}
+
+function formatWhen(value: string): string {
+  if (!value) return "";
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? value : d.toLocaleString();
+}
+
 /**
- * A ConfigMgr device name that opens its ConfigMgr context rather than the
- * Intune Device Card: these devices only exist in Intune when co-managed, so
- * the Intune card is a dead end for a ConfigMgr-only device.
+ * A ConfigMgr device name that opens its ConfigMgr record rather than the
+ * Intune device card: these devices only exist in Intune when Entra-joined, so
+ * the Intune card is a dead end for a ConfigMgr-only device. The Intune link is
+ * offered only when the record carries an AAD device ID.
  */
 function ConfigMgrDeviceName({ name }: { name: string }) {
-  const {
-    deviceDetailName,
-    deviceDetailLoading,
-    deviceDetailError,
-    deviceDetailCollections,
-    toggleDeviceDetail,
-  } = useConfigMgrStore();
+  const { deviceDetailName, deviceDetailLoading, deviceDetailError, deviceCard, toggleDeviceDetail } =
+    useConfigMgrStore();
+  const navigateTo = useNavigationStore((s) => s.navigateTo);
   const open = deviceDetailName === name;
 
   return (
@@ -62,27 +75,67 @@ function ConfigMgrDeviceName({ name }: { name: string }) {
             <span className="text-[10px] text-gray-500">Loading ConfigMgr detail…</span>
           ) : deviceDetailError ? (
             <span className="text-[10px] text-red-400">{deviceDetailError}</span>
-          ) : deviceDetailCollections.length === 0 ? (
-            <span className="text-[10px] text-gray-600">
-              No collection membership returned.
-            </span>
+          ) : !deviceCard ? (
+            <span className="text-[10px] text-gray-600">No ConfigMgr record returned.</span>
           ) : (
-            <>
-              <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">
-                Member of {deviceDetailCollections.length} collection(s)
-              </p>
-              <div className="flex flex-wrap gap-1">
-                {deviceDetailCollections.map((c) => (
-                  <span
-                    key={c.collectionId}
-                    className="text-[10px] px-1.5 py-0.5 rounded bg-gray-800/60 text-gray-300"
-                  >
-                    {c.name}
-                    <span className="text-gray-600"> · {c.collectionId}</span>
-                  </span>
-                ))}
+            <div className="space-y-2 py-1">
+              <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-[10px]">
+                <Fact label="Operating system" value={deviceCard.operatingSystem} />
+                <Fact label="Build" value={deviceCard.build} />
+                <Fact label="ConfigMgr client" value={deviceCard.clientVersion} />
+                <Fact
+                  label="Client state"
+                  value={
+                    deviceCard.isObsolete
+                      ? "Obsolete"
+                      : deviceCard.isClient
+                        ? deviceCard.isActive
+                          ? "Active"
+                          : "Inactive"
+                        : "No client"
+                  }
+                />
+                <Fact label="AD site" value={deviceCard.adSiteName} />
+                <Fact label="Domain" value={deviceCard.domain} />
+                <Fact label="IP address" value={deviceCard.ipAddresses.join(", ")} />
+                <Fact label="MAC address" value={deviceCard.macAddresses.join(", ")} />
+                <Fact label="Last logon" value={formatWhen(deviceCard.lastLogon)} />
+                <Fact label="Discovered" value={formatWhen(deviceCard.createdDate)} />
+                <Fact label="Resource ID" value={String(deviceCard.resourceId || "")} />
+                <Fact label="Assigned site" value={deviceCard.assignedSites.join(", ")} />
               </div>
-            </>
+
+              {deviceCard.collections.length > 0 && (
+                <div>
+                  <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-1">
+                    Member of {deviceCard.collections.length} collection(s)
+                  </p>
+                  <div className="flex flex-wrap gap-1">
+                    {deviceCard.collections.map((c) => (
+                      <span
+                        key={c.collectionId}
+                        className="text-[10px] px-1.5 py-0.5 rounded bg-gray-800/60 text-gray-300"
+                      >
+                        {c.name}
+                        <span className="text-gray-600"> · {c.collectionId}</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {deviceCard.aadDeviceId && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigateTo("deviceCard", { deviceName: deviceCard.name });
+                  }}
+                  className="text-[10px] text-brand-400 hover:underline"
+                >
+                  Entra-joined — open the Intune device card →
+                </button>
+              )}
+            </div>
           )}
         </div>
       )}

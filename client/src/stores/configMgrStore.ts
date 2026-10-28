@@ -8,6 +8,7 @@ import type {
   ConfigMgrApplicationDetail,
   ConfigMgrCollectionMember,
   ConfigMgrDeploymentStatusRow,
+  ConfigMgrDeviceCard,
 } from "@intune-agent/shared";
 
 type SiteResource = "collections" | "deployments" | "applications";
@@ -74,7 +75,7 @@ interface ConfigMgrState {
   deviceDetailName: string | null;
   deviceDetailLoading: boolean;
   deviceDetailError: string | null;
-  deviceDetailCollections: { collectionId: string; name: string }[];
+  deviceCard: ConfigMgrDeviceCard | null;
   toggleDeviceDetail: (deviceName: string) => Promise<void>;
 
   // Demo mode (simulated site data; a real connection always takes precedence)
@@ -190,30 +191,28 @@ export const useConfigMgrStore = create<ConfigMgrState>((set, get) => ({
   deviceDetailName: null,
   deviceDetailLoading: false,
   deviceDetailError: null,
-  deviceDetailCollections: [],
+  deviceCard: null,
 
   toggleDeviceDetail: async (deviceName) => {
     if (get().deviceDetailName === deviceName) {
-      set({ deviceDetailName: null, deviceDetailError: null, deviceDetailCollections: [] });
+      set({ deviceDetailName: null, deviceDetailError: null, deviceCard: null });
       return;
     }
     set({
       deviceDetailName: deviceName,
       deviceDetailLoading: true,
       deviceDetailError: null,
-      deviceDetailCollections: [],
+      deviceCard: null,
     });
     try {
-      const res = await fetch(
-        `/api/configmgr/devices/${encodeURIComponent(deviceName)}/collections`
-      );
+      const res = await fetch(`/api/configmgr/devices/${encodeURIComponent(deviceName)}`);
       const data = await res.json();
       if (data.error) throw new Error(data.error);
-      set({ deviceDetailCollections: data.items ?? [] });
+      set({ deviceCard: data.items?.[0] ?? null });
     } catch (err) {
       set({
         deviceDetailError:
-          err instanceof Error ? err.message : "Failed to load ConfigMgr device detail",
+          err instanceof Error ? err.message : "Failed to load the ConfigMgr device record",
       });
     } finally {
       set({ deviceDetailLoading: false });
@@ -228,7 +227,7 @@ export const useConfigMgrStore = create<ConfigMgrState>((set, get) => ({
       deploymentStatus: [],
       applicationDetail: null,
       deviceDetailName: null,
-      deviceDetailCollections: [],
+      deviceCard: null,
       deviceDetailError: null,
     }),
 

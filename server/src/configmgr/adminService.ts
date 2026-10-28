@@ -12,6 +12,7 @@ import type {
   ConfigMgrConnectionStatus,
   ConfigMgrDeploymentInfo,
   ConfigMgrDeploymentStatusRow,
+  ConfigMgrDeviceCard,
 } from "@intune-agent/shared";
 import { explainDeploymentError } from "./configmgrErrors.js";
 
@@ -588,8 +589,17 @@ async function resolveResourceId(
     top: 1,
   });
   if (found.length === 0) return null;
-  const id = num(found[0].ResourceID);
+  const id = resourceIdOf(found[0]);
   return id > 0 ? id : null;
+}
+
+/**
+ * ResourceID's casing varies: the SMS Provider returns "ResourceID" for an
+ * unfiltered read but "ResourceId" when $select names it. Accept both — reading
+ * only one silently yields 0 and looks like "device not found".
+ */
+function resourceIdOf(row: Record<string, unknown>): number {
+  return num(row.ResourceID ?? row.ResourceId);
 }
 
 function requireConnected(): EffectiveConfigMgrConfig {
@@ -678,10 +688,14 @@ export async function getDeviceCollections(
       const rows = Array.isArray(json.value) ? (json.value as Record<string, unknown>[]) : [];
       const collections = rows
         .map((r) => (r.Collection ?? r) as Record<string, unknown>)
-        .filter((c) => c && (c.CollectionID || c.Name))
+        .filter((c) => c && (c.SiteID || c.CollectionID || c.CollectionName || c.Name))
         .map((c) => ({
-          collectionId: String(c.CollectionID ?? ""),
-          name: String(c.Name ?? c.CollectionName ?? ""),
+          // On the v1.0 route the admin-facing ID ("SMS00001") is SiteID;
+          // CollectionID there is an internal numeric surrogate. The wmi route
+          // and the demo fixtures use CollectionID for the real value, hence
+          // the fallback.
+          collectionId: String(c.SiteID ?? c.CollectionID ?? ""),
+          name: String(c.CollectionName ?? c.Name ?? ""),
         }));
       results.push({ deviceName, resourceId, found: true, collections });
     } catch (err: unknown) {
@@ -819,14 +833,18 @@ export async function getCollectionMembers(
     "wmi/SMS_FullCollectionMembership",
     {
       filter: `CollectionID eq '${id.replace(/'/g, "''")}'`,
-      select: "ResourceID,Name,IsActive,IsClient,ClientVersion,SiteCode,Domain,DeviceCategory",
-      orderby: "Name",
+      // No $select and no $orderby on this class: the SMS Provider answers 404
+      // for an $orderby, and for a $select naming ClientVersion (a lazy
+      // property). Verified against a live site; the full record is returned
+      // instead and sorted below.
       top: options?.top ?? DEFAULT_TOP,
     }
   );
 
+  rows.sort((a, b) => String(a.Name ?? "").localeCompare(String(b.Name ?? "")));
+
   return rows.map((r) => ({
-    resourceId: num(r.ResourceID),
+    resourceId: resourceIdOf(r),
     name: String(r.Name ?? ""),
     isActive: r.IsActive === true || r.IsActive === 1,
     isClient: r.IsClient === true || r.IsClient === 1,
@@ -835,6 +853,77 @@ export async function getCollectionMembers(
     domain: String(r.Domain ?? ""),
     deviceCategory: String(r.DeviceCategory ?? ""),
   }));
+}
+
+const DEVICE_CARD_SELECT = [
+  "ResourceID", "Name", "NetbiosName", "FullDomainName", "OperatingSystemNameandVersion",
+  "Build", "ClientVersion", "Client", "Active", "Obsolete", "IsVirtualMachine",
+  "ADSiteName", "IPAddresses", "MACAddresses", "LastLogonTimestamp", "CreationDate",
+  "CPUType", "SMBIOSGUID", "DistinguishedName", "SMSAssignedSites", "AADDeviceID",
+].join(",");
+
+function strArray(v: unknown): string[] {
+  if (Array.isArray(v)) return v.map((x) => String(x)).filter(Boolean);
+  if (v === null || v === undefined || v === "") return [];
+  return [String(v)];
+}
+
+/**
+ * The ConfigMgr record for one device — the ConfigMgr equivalent of the Intune
+ * device card, including the collections it belongs to.
+ *
+ * `aadDeviceId` is populated for Entra-joined devices, which is what tells the
+ * UI whether an Intune device card would resolve for this machine at all.
+ */
+export async function getConfigMgrDeviceCard(
+  deviceName: string
+): Promise<ConfigMgrDeviceCard | null> {
+  const cm = requireConnected();
+  const name = String(deviceName || "").trim();
+  if (!name) throw new Error("A device name is required.");
+
+  const rows = await adminGet<Record<string, unknown>>(cm, "wmi/SMS_R_System", {
+    filter: `Name eq '${name.replace(/'/g, "''")}'`,
+    select: DEVICE_CARD_SELECT,
+    top: 1,
+  });
+  const r = rows[0];
+  if (!r) return null;
+
+  const resourceId = resourceIdOf(r);
+
+  let collections: { collectionId: string; name: string }[] = [];
+  try {
+    const membership = await getDeviceCollections([name]);
+    collections = membership[0]?.collections ?? [];
+  } catch {
+    // Membership is supplementary — a failure there must not lose the card.
+  }
+
+  return {
+    resourceId,
+    name: String(r.Name ?? name),
+    netbiosName: String(r.NetbiosName ?? ""),
+    domain: String(r.FullDomainName ?? ""),
+    operatingSystem: String(r.OperatingSystemNameandVersion ?? ""),
+    build: String(r.Build ?? ""),
+    clientVersion: String(r.ClientVersion ?? ""),
+    isClient: r.Client === 1 || r.Client === true,
+    isActive: r.Active === 1 || r.Active === true,
+    isObsolete: r.Obsolete === 1 || r.Obsolete === true,
+    isVirtualMachine: r.IsVirtualMachine === true || r.IsVirtualMachine === 1,
+    adSiteName: String(r.ADSiteName ?? ""),
+    ipAddresses: strArray(r.IPAddresses),
+    macAddresses: strArray(r.MACAddresses),
+    lastLogon: String(r.LastLogonTimestamp ?? ""),
+    createdDate: String(r.CreationDate ?? ""),
+    cpuType: String(r.CPUType ?? ""),
+    smBiosGuid: String(r.SMBIOSGUID ?? ""),
+    distinguishedName: String(r.DistinguishedName ?? ""),
+    assignedSites: strArray(r.SMSAssignedSites),
+    aadDeviceId: r.AADDeviceID ? String(r.AADDeviceID) : undefined,
+    collections,
+  };
 }
 
 /**

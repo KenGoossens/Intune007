@@ -181,7 +181,7 @@ let nextCmPivotOperationId = 880000;
 
 // ─── Dispatch ────────────────────────────────────────────────────
 
-function deviceByName(name: string): { ResourceID: number; Name: string } | undefined {
+function deviceByName(name: string): (typeof DEVICES)[number] | undefined {
   return DEVICES.find((d) => d.Name.toLowerCase() === name.toLowerCase());
 }
 
@@ -351,7 +351,35 @@ export function demoResponse(
     const nameMatch = search.match(/Name eq '([^']*)'/);
     if (nameMatch) {
       const found = deviceByName(nameMatch[1].replace(/''/g, "'"));
-      return { value: found ? [{ ResourceID: found.ResourceID, Name: found.Name }] : [] };
+      if (!found) return { value: [] };
+      // A device-card request selects many columns; a bare resolution selects
+      // only two. Return the full record either way and let $select apply.
+      return {
+        value: [
+          {
+            ResourceID: found.ResourceID,
+            Name: found.Name,
+            NetbiosName: found.Name,
+            FullDomainName: "AD.CONTOSO-DEMO.LOCAL",
+            OperatingSystemNameandVersion: "Microsoft Windows NT Workstation 10.0",
+            Build: "10.0.26100",
+            ClientVersion: "5.00.9122.1025",
+            Client: 1,
+            Active: found.Active,
+            Obsolete: 0,
+            IsVirtualMachine: false,
+            ADSiteName: "Default-First-Site-Name",
+            IPAddresses: ["10.24.8.41"],
+            MACAddresses: ["00:15:5D:3A:1C:77"],
+            LastLogonTimestamp: "2026-10-26T08:14:22Z",
+            CreationDate: "2026-04-02T10:05:00Z",
+            CPUType: "Intel64 Family 6 Model 154 Stepping 3",
+            SMBIOSGUID: "4C4C4544-0032-1234-5678-9ABCDEF01234",
+            DistinguishedName: `CN=${found.Name},OU=Workstations,DC=AD,DC=CONTOSO-DEMO,DC=LOCAL`,
+            SMSAssignedSites: [SITE.SiteCode],
+          },
+        ],
+      };
     }
     return { value: DEVICES };
   }

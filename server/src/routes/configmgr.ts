@@ -18,6 +18,7 @@ import {
   getDeploymentStatus,
   getApplicationDetail,
   getDeviceCollections,
+  getConfigMgrDeviceCard,
 } from "../configmgr/adminService.js";
 import { triggerConfigMgrClientAction } from "../configmgr/comanagement.js";
 import {
@@ -279,6 +280,27 @@ router.get("/devices/:deviceName/collections", async (req: Request, res: Respons
       return;
     }
     res.json({ configured: true, items: row.collections, totalCount: row.collections.length, resourceId: row.resourceId });
+  } catch (err) {
+    res.status(502).json({ error: sanitizeErrorMessage(String(err)) });
+  }
+});
+
+/**
+ * GET /api/configmgr/devices/:deviceName
+ * The ConfigMgr record for one device, with its collection membership.
+ */
+router.get("/devices/:deviceName", async (req: Request, res: Response) => {
+  if (!isConfigMgrConfigured()) {
+    res.json(NOT_CONFIGURED);
+    return;
+  }
+  try {
+    const card = await getConfigMgrDeviceCard(String(req.params.deviceName));
+    if (!card) {
+      res.status(404).json({ error: `Device '${req.params.deviceName}' was not found in Configuration Manager.` });
+      return;
+    }
+    res.json({ configured: true, items: [card], totalCount: 1 });
   } catch (err) {
     res.status(502).json({ error: sanitizeErrorMessage(String(err)) });
   }
