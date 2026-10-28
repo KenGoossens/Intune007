@@ -683,13 +683,24 @@ function SiteTab() {
     load();
   };
 
+  // Re-check on mount rather than only when absent: the connection can change
+  // (a site connected, demo switched off) while this tab is not on screen.
   useEffect(() => {
-    if (!connection) fetchConnection();
-  }, [connection, fetchConnection]);
+    fetchConnection();
+  }, [fetchConnection]);
 
   useEffect(() => {
     if (connection?.connected && resource !== "cmpivot") fetchSite(resource);
-  }, [connection?.connected, resource, fetchSite]);
+    // Keyed on the connection's identity, not just `connected`: switching from
+    // simulated data to a real site leaves `connected` true, so depending on
+    // that boolean alone left stale demo rows on screen.
+  }, [connection?.connected, connection?.url, connection?.siteCode, resource, fetchSite]);
+
+  // A different site (or leaving demo mode) invalidates any open drill-down.
+  useEffect(() => {
+    setExpanded(null);
+    clearDetail();
+  }, [connection?.url, connection?.siteCode, clearDetail]);
 
   if (connectionLoading && !connection) {
     return (
