@@ -802,8 +802,12 @@ export interface ConfigMgrDeviceCard {
   assignedSites: string[];
   /** Site system roles, e.g. "Domain Controller" — client push treats a DC specially. */
   systemRoles: string[];
-  /** Present when the device is Entra-joined — implies it may also be in Intune. */
+  /** Present when the device is Entra-joined. */
   aadDeviceId?: string;
+  /** The Entra tenant the device is joined to, which may not be the connected one. */
+  aadTenantId?: string;
+  /** True only when that tenant is the one this app is connected to — i.e. an Intune lookup can succeed. */
+  inConnectedIntuneTenant?: boolean;
   collections: { collectionId: string; name: string }[];
 }
 

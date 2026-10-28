@@ -872,7 +872,7 @@ const DEVICE_CARD_SELECT = [
   "ResourceID", "Name", "NetbiosName", "FullDomainName", "OperatingSystemNameandVersion",
   "Build", "ClientVersion", "Client", "Active", "Obsolete", "IsVirtualMachine",
   "ADSiteName", "IPAddresses", "MACAddresses", "LastLogonTimestamp", "CreationDate",
-  "CPUType", "SMBIOSGUID", "DistinguishedName", "SMSAssignedSites", "AADDeviceID",
+  "CPUType", "SMBIOSGUID", "DistinguishedName", "SMSAssignedSites", "AADDeviceID", "AADTenantID",
   "SystemRoles",
 ].join(",");
 
@@ -937,6 +937,13 @@ export async function getConfigMgrDeviceCard(
     assignedSites: strArray(r.SMSAssignedSites),
     systemRoles: strArray(r.SystemRoles),
     aadDeviceId: r.AADDeviceID ? String(r.AADDeviceID) : undefined,
+    aadTenantId: r.AADTenantID ? String(r.AADTenantID) : undefined,
+    // Entra-joined is not the same as "in the Intune tenant this app talks to":
+    // a ConfigMgr estate can be joined to a different tenant entirely, and the
+    // Intune device card would then never resolve.
+    inConnectedIntuneTenant:
+      Boolean(r.AADTenantID) &&
+      String(r.AADTenantID).toLowerCase() === String(config.azureAd.tenantId ?? "").toLowerCase(),
     collections,
   };
 }

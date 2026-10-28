@@ -124,17 +124,31 @@ function ConfigMgrDeviceName({ name }: { name: string }) {
                 </div>
               )}
 
-              {deviceCard.aadDeviceId && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    navigateTo("deviceCard", { deviceName: deviceCard.name });
-                  }}
-                  className="text-[10px] text-brand-400 hover:underline"
-                >
-                  Entra-joined — open the Intune device card →
-                </button>
-              )}
+              {/*
+                Being Entra-joined is not enough to offer the Intune card: the
+                device may be joined to a different tenant than the one this app
+                is connected to, in which case the lookup can only ever answer
+                "device not found". Say which it is instead of offering a link
+                that cannot resolve.
+              */}
+              {deviceCard.aadDeviceId &&
+                (deviceCard.inConnectedIntuneTenant ? (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      navigateTo("deviceCard", { deviceName: deviceCard.name });
+                    }}
+                    className="text-[10px] text-brand-400 hover:underline"
+                  >
+                    Entra-joined — open the Intune device card →
+                  </button>
+                ) : (
+                  <div className="text-[10px] text-gray-500">
+                    Entra-joined to a different tenant
+                    {deviceCard.aadTenantId ? ` (${deviceCard.aadTenantId})` : ""} than the
+                    one Intune007 is connected to, so it has no Intune device card here.
+                  </div>
+                ))}
             </div>
           )}
         </div>
