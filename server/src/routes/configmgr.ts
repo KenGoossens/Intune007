@@ -14,6 +14,9 @@ import {
   isConfigMgrSimulated,
   resetConfigMgrAuthCache,
   runCmPivot,
+  getCollectionMembers,
+  getDeploymentStatus,
+  getApplicationDetail,
 } from "../configmgr/adminService.js";
 import { triggerConfigMgrClientAction } from "../configmgr/comanagement.js";
 import {
@@ -197,6 +200,64 @@ router.delete("/connection", (_req: Request, res: Response) => {
   clearStoredConnection();
   resetConfigMgrAuthCache();
   res.json({ ok: true });
+});
+
+/**
+ * GET /api/configmgr/collections/:collectionId/members
+ * Devices that are members of a collection.
+ */
+router.get("/collections/:collectionId/members", async (req: Request, res: Response) => {
+  if (!isConfigMgrConfigured()) {
+    res.json(NOT_CONFIGURED);
+    return;
+  }
+  try {
+    const top = req.query.top ? parseInt(String(req.query.top), 10) : undefined;
+    const items = await getCollectionMembers(String(req.params.collectionId), { top });
+    res.json({ configured: true, items, totalCount: items.length });
+  } catch (err) {
+    res.status(502).json({ error: sanitizeErrorMessage(String(err)) });
+  }
+});
+
+/**
+ * GET /api/configmgr/deployments/:assignmentId/status
+ * Per-device status for a deployment. `?all=1` includes non-failures.
+ */
+router.get("/deployments/:assignmentId/status", async (req: Request, res: Response) => {
+  if (!isConfigMgrConfigured()) {
+    res.json(NOT_CONFIGURED);
+    return;
+  }
+  try {
+    const top = req.query.top ? parseInt(String(req.query.top), 10) : undefined;
+    const errorsOnly = req.query.all === "1" ? false : undefined;
+    const items = await getDeploymentStatus(String(req.params.assignmentId), { top, errorsOnly });
+    res.json({ configured: true, items, totalCount: items.length });
+  } catch (err) {
+    res.status(502).json({ error: sanitizeErrorMessage(String(err)) });
+  }
+});
+
+/**
+ * GET /api/configmgr/applications/:ciId
+ * Detail for a single application.
+ */
+router.get("/applications/:ciId", async (req: Request, res: Response) => {
+  if (!isConfigMgrConfigured()) {
+    res.json(NOT_CONFIGURED);
+    return;
+  }
+  try {
+    const item = await getApplicationDetail(String(req.params.ciId));
+    if (!item) {
+      res.status(404).json({ error: "Application not found." });
+      return;
+    }
+    res.json({ configured: true, items: [item], totalCount: 1 });
+  } catch (err) {
+    res.status(502).json({ error: sanitizeErrorMessage(String(err)) });
+  }
 });
 
 /**

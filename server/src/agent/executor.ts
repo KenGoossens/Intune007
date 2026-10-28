@@ -108,6 +108,9 @@ import {
   getDeviceCollections,
   addCollectionDirectMember,
   importMachineEntry,
+  getCollectionMembers,
+  getDeploymentStatus,
+  getApplicationDetail,
 } from "../configmgr/adminService.js";
 import { computeSecurityPosture } from "../routes/securityPosture.js";
 import { getAppHealthData } from "../routes/appHealth.js";
@@ -1208,6 +1211,41 @@ export async function executeTool(
           : [String(args.deviceNames ?? "")];
         const memberships = await getDeviceCollections(names);
         return { data: memberships, totalCount: memberships.length };
+      }
+
+      case "get_configmgr_collection_members": {
+        if (!isConfigMgrConfigured()) return configMgrNotConnected();
+        const members = await getCollectionMembers(String(args.collectionId), {
+          top: typeof args.top === "number" ? args.top : undefined,
+        });
+        return { data: members, totalCount: members.length };
+      }
+
+      case "get_configmgr_deployment_status": {
+        if (!isConfigMgrConfigured()) return configMgrNotConnected();
+        const rows = await getDeploymentStatus(String(args.deploymentId), {
+          top: typeof args.top === "number" ? args.top : undefined,
+          errorsOnly: args.includeAll === true ? false : undefined,
+        });
+        const unrecognised = rows.filter((r) => r.errorCode && !r.errorRecognised).length;
+        return {
+          data: rows,
+          totalCount: rows.length,
+          ...(unrecognised > 0
+            ? {
+                note: `${unrecognised} row(s) carry an error code that is not in the verified reference. Report those as unrecognised rather than guessing their meaning.`,
+              }
+            : {}),
+        };
+      }
+
+      case "get_configmgr_application_detail": {
+        if (!isConfigMgrConfigured()) return configMgrNotConnected();
+        const detail = await getApplicationDetail(String(args.ciId));
+        if (!detail) {
+          return { data: [], error: `No ConfigMgr application found with CI_ID ${args.ciId}.` };
+        }
+        return { data: [detail], totalCount: 1 };
       }
 
       case "add_configmgr_collection_member": {

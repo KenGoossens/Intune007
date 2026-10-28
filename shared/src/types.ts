@@ -290,7 +290,10 @@ export type DataPanelType =
   | "configmgr_device_count"
   | "configmgr_device_collections"
   | "configmgr_collection_member"
-  | "configmgr_machine_entry";
+  | "configmgr_machine_entry"
+  | "configmgr_collection_members"
+  | "configmgr_deployment_status"
+  | "configmgr_application_detail";
 
 export interface DataPanel {
   id: string;
@@ -399,6 +402,9 @@ export const TOOL_TO_PANEL_TYPE: Record<string, DataPanelType> = {
   get_configmgr_device_collections: "configmgr_device_collections",
   add_configmgr_collection_member: "configmgr_collection_member",
   import_configmgr_machine_entry: "configmgr_machine_entry",
+  get_configmgr_collection_members: "configmgr_collection_members",
+  get_configmgr_deployment_status: "configmgr_deployment_status",
+  get_configmgr_application_detail: "configmgr_application_detail",
 };
 
 export const TOOL_TO_PANEL_TITLE: Record<string, string> = {
@@ -496,6 +502,9 @@ export const TOOL_TO_PANEL_TITLE: Record<string, string> = {
   get_configmgr_device_collections: "ConfigMgr Collection Membership",
   add_configmgr_collection_member: "ConfigMgr Direct Membership Added",
   import_configmgr_machine_entry: "ConfigMgr Prestaged Computer",
+  get_configmgr_collection_members: "ConfigMgr Collection Members",
+  get_configmgr_deployment_status: "ConfigMgr Deployment Status",
+  get_configmgr_application_detail: "ConfigMgr Application Detail",
 };
 
 /**
@@ -574,6 +583,8 @@ export const PANEL_TO_TOOLS: Record<string, string[]> = {
     "trigger_configmgr_client_action", "run_cmpivot_query",
     "get_configmgr_device_count", "get_configmgr_device_collections",
     "add_configmgr_collection_member", "import_configmgr_machine_entry",
+    "get_configmgr_collection_members", "get_configmgr_deployment_status",
+    "get_configmgr_application_detail",
   ],
 };
 
@@ -716,6 +727,8 @@ export interface ConfigMgrCollectionInfo {
 /** A ConfigMgr deployment summary (SMS_DeploymentSummary). */
 export interface ConfigMgrDeploymentInfo {
   deploymentId: string;
+  /** Numeric assignment ID — the per-device status classes key on this, not DeploymentID. */
+  assignmentId: number;
   softwareName: string;
   collectionName: string;
   intent: string;
@@ -728,6 +741,46 @@ export interface ConfigMgrDeploymentInfo {
 }
 
 /** A ConfigMgr application (SMS_Application, latest revision). */
+/** A device that is a member of a ConfigMgr collection. */
+export interface ConfigMgrCollectionMember {
+  resourceId: number;
+  name: string;
+  isActive: boolean;
+  isClient: boolean;
+  clientVersion: string;
+  siteCode: string;
+  domain: string;
+  deviceCategory: string;
+}
+
+/** Per-device status for one ConfigMgr deployment. */
+export interface ConfigMgrDeploymentStatusRow {
+  machineName: string;
+  resourceId: number;
+  /** Success | In progress | Requirements not met | Unknown | Error */
+  status: string;
+  enforcementState?: string;
+  /** Canonical hex form of the error code, when one was reported. */
+  errorCode?: string;
+  /** How Microsoft documents the code (MSI/Windows codes are decimals). */
+  errorDocumentedAs?: string;
+  /** False means the code is genuinely unrecognised, never a guessed meaning. */
+  errorRecognised?: boolean;
+  errorMeaning?: string;
+  errorRemediation?: string;
+  errorSource?: string;
+}
+
+/** Detail for a single ConfigMgr application. */
+export interface ConfigMgrApplicationDetail extends ConfigMgrApplicationInfo {
+  description?: string;
+  dateLastModified?: string;
+  createdBy?: string;
+  isEnabled?: boolean;
+  isSuperseded?: boolean;
+  numberOfDevicesWithFailure?: number;
+}
+
 export interface ConfigMgrApplicationInfo {
   ciId: string;
   name: string;

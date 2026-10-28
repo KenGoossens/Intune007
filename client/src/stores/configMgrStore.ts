@@ -5,6 +5,9 @@ import type {
   ConfigMgrCollectionInfo,
   ConfigMgrDeploymentInfo,
   ConfigMgrApplicationInfo,
+  ConfigMgrApplicationDetail,
+  ConfigMgrCollectionMember,
+  ConfigMgrDeploymentStatusRow,
 } from "@intune-agent/shared";
 
 type SiteResource = "collections" | "deployments" | "applications";
@@ -54,6 +57,18 @@ interface ConfigMgrState {
   siteError: string | null;
   fetchConnection: () => Promise<void>;
   fetchSite: (resource: SiteResource) => Promise<void>;
+
+  // Drill-down detail (lazily fetched when a row is expanded)
+  detailKey: string | null;
+  detailLoading: boolean;
+  detailError: string | null;
+  collectionMembers: ConfigMgrCollectionMember[];
+  deploymentStatus: ConfigMgrDeploymentStatusRow[];
+  applicationDetail: ConfigMgrApplicationDetail | null;
+  fetchCollectionMembers: (collectionId: string) => Promise<void>;
+  fetchDeploymentStatus: (deploymentId: string) => Promise<void>;
+  fetchApplicationDetail: (ciId: string) => Promise<void>;
+  clearDetail: () => void;
 
   // Demo mode (simulated site data; a real connection always takes precedence)
   demoMode: boolean;
@@ -155,6 +170,64 @@ export const useConfigMgrStore = create<ConfigMgrState>((set, get) => ({
       set({ siteError: err instanceof Error ? err.message : `Failed to load ${resource}` });
     } finally {
       set((s) => ({ siteLoading: { ...s.siteLoading, [resource]: false } }));
+    }
+  },
+
+  detailKey: null,
+  detailLoading: false,
+  detailError: null,
+  collectionMembers: [],
+  deploymentStatus: [],
+  applicationDetail: null,
+
+  clearDetail: () =>
+    set({
+      detailKey: null,
+      detailError: null,
+      collectionMembers: [],
+      deploymentStatus: [],
+      applicationDetail: null,
+    }),
+
+  fetchCollectionMembers: async (collectionId) => {
+    set({ detailKey: `collection:${collectionId}`, detailLoading: true, detailError: null, collectionMembers: [] });
+    try {
+      const res = await fetch(`/api/configmgr/collections/${encodeURIComponent(collectionId)}/members`);
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      set({ collectionMembers: data.items ?? [] });
+    } catch (err) {
+      set({ detailError: err instanceof Error ? err.message : "Failed to load members" });
+    } finally {
+      set({ detailLoading: false });
+    }
+  },
+
+  fetchDeploymentStatus: async (deploymentId) => {
+    set({ detailKey: `deployment:${deploymentId}`, detailLoading: true, detailError: null, deploymentStatus: [] });
+    try {
+      const res = await fetch(`/api/configmgr/deployments/${encodeURIComponent(deploymentId)}/status?all=1`);
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      set({ deploymentStatus: data.items ?? [] });
+    } catch (err) {
+      set({ detailError: err instanceof Error ? err.message : "Failed to load deployment status" });
+    } finally {
+      set({ detailLoading: false });
+    }
+  },
+
+  fetchApplicationDetail: async (ciId) => {
+    set({ detailKey: `application:${ciId}`, detailLoading: true, detailError: null, applicationDetail: null });
+    try {
+      const res = await fetch(`/api/configmgr/applications/${encodeURIComponent(ciId)}`);
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      set({ applicationDetail: data.items?.[0] ?? null });
+    } catch (err) {
+      set({ detailError: err instanceof Error ? err.message : "Failed to load application detail" });
+    } finally {
+      set({ detailLoading: false });
     }
   },
 

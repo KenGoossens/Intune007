@@ -61,10 +61,10 @@ const MEMBERSHIP: Record<number, string[]> = {
 };
 
 const DEPLOYMENTS = [
-  { DeploymentID: "DMO20001", SoftwareName: "Microsoft 365 Apps for enterprise", CollectionName: "All Desktop and Server Clients", DeploymentIntent: 1, FeatureType: 1, NumberTargeted: 198, NumberSuccess: 181, NumberErrors: 4, NumberInProgress: 9, NumberUnknown: 4 },
-  { DeploymentID: "DMO20002", SoftwareName: "7-Zip 24.08", CollectionName: "All Desktop and Server Clients", DeploymentIntent: 2, FeatureType: 1, NumberTargeted: 198, NumberSuccess: 142, NumberErrors: 1, NumberInProgress: 2, NumberUnknown: 53 },
-  { DeploymentID: "DMO20003", SoftwareName: "Windows 11 23H2 Feature Update", CollectionName: "Windows 11 Pilot", DeploymentIntent: 1, FeatureType: 5, NumberTargeted: 24, NumberSuccess: 19, NumberErrors: 2, NumberInProgress: 3, NumberUnknown: 0 },
-  { DeploymentID: "DMO20004", SoftwareName: "Notepad++ 8.6.9", CollectionName: "Finance Workstations", DeploymentIntent: 2, FeatureType: 1, NumberTargeted: 41, NumberSuccess: 33, NumberErrors: 0, NumberInProgress: 1, NumberUnknown: 7 },
+  { DeploymentID: "DMO20001", AssignmentID: 20001, SoftwareName: "Microsoft 365 Apps for enterprise", CollectionName: "All Desktop and Server Clients", DeploymentIntent: 1, FeatureType: 1, NumberTargeted: 198, NumberSuccess: 181, NumberErrors: 4, NumberInProgress: 9, NumberUnknown: 4 },
+  { DeploymentID: "DMO20002", AssignmentID: 20002, SoftwareName: "7-Zip 24.08", CollectionName: "All Desktop and Server Clients", DeploymentIntent: 2, FeatureType: 1, NumberTargeted: 198, NumberSuccess: 142, NumberErrors: 1, NumberInProgress: 2, NumberUnknown: 53 },
+  { DeploymentID: "DMO20003", AssignmentID: 20003, SoftwareName: "Windows 11 23H2 Feature Update", CollectionName: "Windows 11 Pilot", DeploymentIntent: 1, FeatureType: 5, NumberTargeted: 24, NumberSuccess: 19, NumberErrors: 2, NumberInProgress: 3, NumberUnknown: 0 },
+  { DeploymentID: "DMO20004", AssignmentID: 20004, SoftwareName: "Notepad++ 8.6.9", CollectionName: "Finance Workstations", DeploymentIntent: 2, FeatureType: 1, NumberTargeted: 41, NumberSuccess: 33, NumberErrors: 0, NumberInProgress: 1, NumberUnknown: 7 },
 ];
 
 const APPLICATIONS = [
@@ -73,6 +73,51 @@ const APPLICATIONS = [
   { CI_ID: 16877, LocalizedDisplayName: "Notepad++", Manufacturer: "Notepad++ Team", SoftwareVersion: "8.6.9", NumberOfDeployments: 1, NumberOfDevicesWithApp: 33, IsDeployed: true, DateCreated: "2026-05-19T08:05:00Z" },
   { CI_ID: 16903, LocalizedDisplayName: "Contoso Expenses", Manufacturer: "Contoso", SoftwareVersion: "3.2.1", NumberOfDeployments: 0, NumberOfDevicesWithApp: 0, IsDeployed: false, DateCreated: "2026-08-27T15:22:00Z" },
 ];
+
+/**
+ * Per-device deployment failures. Codes are real, documented ones so the
+ * error table resolves them — except DMO20003's second row, which carries a
+ * deliberately unrecognised code so the "I don't know this one" path is
+ * demonstrable rather than theoretical.
+ */
+const DEPLOYMENT_ERRORS_BY_ASSIGNMENT: Record<number, Record<string, unknown>[]> = {
+  // Microsoft 365 Apps — 4 errors
+  20001: [
+    { MachineName: "DMO-FIN-0012", MachineID: 16777219, StatusType: 5, EnforcementState: 11, ErrorCode: -2016410844 }, // 0x87D00324
+    { MachineName: "DMO-ENG-0041", MachineID: 16777221, StatusType: 5, EnforcementState: 11, ErrorCode: -2016410844 }, // 0x87D00324
+    { MachineName: "DMO-HR-0007", MachineID: 16777223, StatusType: 5, EnforcementState: 2, ErrorCode: -2016410105 },   // 0x87D00607
+    { MachineName: "DMO-SRV-0002", MachineID: 16777225, StatusType: 5, EnforcementState: 11, ErrorCode: 1603 },
+  ],
+  // 7-Zip — 1 error
+  20002: [
+    { MachineName: "DMO-LAB-0003", MachineID: 16777226, StatusType: 5, EnforcementState: 14, ErrorCode: -2016407033 }, // 0x87D01107
+  ],
+  // Windows 11 feature update — 2 errors, one deliberately unknown
+  20003: [
+    { MachineName: "DMO-ENG-0042", MachineID: 16777222, StatusType: 5, EnforcementState: 5, ErrorCode: -2016411001 },  // 0x87D00287 — not in the table
+    { MachineName: "DMO-FIN-0013", MachineID: 16777220, StatusType: 5, EnforcementState: 11, ErrorCode: 1618 },
+  ],
+  20004: [],
+};
+
+/** Non-error assets, used when the full status breakdown is requested. */
+const DEPLOYMENT_ASSETS_BY_ASSIGNMENT: Record<number, Record<string, unknown>[]> = {
+  20001: [
+    { MachineName: "DMO-FIN-0013", MachineID: 16777220, StatusType: 1, EnforcementState: 10 },
+    { MachineName: "DMO-ENG-0042", MachineID: 16777222, StatusType: 1, EnforcementState: 10 },
+    { MachineName: "DMO-SRV-0001", MachineID: 16777224, StatusType: 2, EnforcementState: 8 },
+  ],
+  20002: [
+    { MachineName: "DMO-FIN-0012", MachineID: 16777219, StatusType: 1, EnforcementState: 10 },
+    { MachineName: "DMO-ENG-0041", MachineID: 16777221, StatusType: 4, EnforcementState: 0 },
+  ],
+  20003: [
+    { MachineName: "DMO-ENG-0041", MachineID: 16777221, StatusType: 1, EnforcementState: 10 },
+  ],
+  20004: [
+    { MachineName: "DMO-FIN-0012", MachineID: 16777219, StatusType: 1, EnforcementState: 10 },
+  ],
+};
 
 const CMPIVOT_ROWS = [
   { Device: "DMO-FIN-0012", Name: "wuauserv", State: "Running", StartMode: "Auto" },
@@ -143,10 +188,69 @@ export function demoResponse(
   }
 
   // ─── Reads ───
+  // Order matters: dispatch is by substring, so the specific classes below
+  // must be tested BEFORE the broader SMS_Collection / SMS_Application ones,
+  // which would otherwise swallow them.
+  if (path.includes("SMS_FullCollectionMembership")) {
+    const match = search.match(/CollectionID eq '([^']*)'/);
+    const collectionId = match ? match[1].replace(/''/g, "'") : "";
+    const members = DEVICES.filter((d) =>
+      (MEMBERSHIP[d.ResourceID] ?? []).some(
+        (c) => c.toLowerCase() === collectionId.toLowerCase()
+      )
+    );
+    return {
+      value: members.map((d) => ({
+        ResourceID: d.ResourceID,
+        Name: d.Name,
+        CollectionID: collectionId,
+        IsActive: d.Active === 1,
+        IsClient: true,
+        ClientVersion: "5.00.9122.1025",
+        SiteCode: SITE.SiteCode,
+        Domain: "CONTOSO",
+        DeviceCategory: "",
+      })),
+    };
+  }
+
+  if (path.includes("SMS_AppDeploymentErrorAssetDetails")) {
+    const match = search.match(/AssignmentID eq (\d+)/);
+    const id = match ? Number(match[1]) : 0;
+    return { value: DEPLOYMENT_ERRORS_BY_ASSIGNMENT[id] ?? [] };
+  }
+
+  if (path.includes("SMS_AppDeploymentAssetDetails")) {
+    const match = search.match(/AssignmentID eq (\d+)/);
+    const id = match ? Number(match[1]) : 0;
+    return { value: DEPLOYMENT_ASSETS_BY_ASSIGNMENT[id] ?? [] };
+  }
+
   if (path.includes("SMS_Site")) return { value: [SITE] };
   if (path.includes("SMS_Collection")) return { value: COLLECTIONS };
   if (path.includes("SMS_DeploymentSummary")) return { value: DEPLOYMENTS };
-  if (path.includes("SMS_Application")) return { value: APPLICATIONS };
+  if (path.includes("SMS_Application")) {
+    // A CI_ID filter means the detail view wants one application.
+    const match = search.match(/CI_ID eq (\d+)/);
+    if (match) {
+      const ciId = Number(match[1]);
+      const app = APPLICATIONS.find((a) => a.CI_ID === ciId);
+      return {
+        value: app
+          ? [{
+              ...app,
+              LocalizedDescription: `${app.LocalizedDisplayName} deployed from the simulated Contoso demo site.`,
+              DateLastModified: "2026-10-02T11:18:00Z",
+              CreatedBy: "CONTOSO\\\\cmadmin",
+              IsEnabled: true,
+              IsSuperseded: false,
+              NumberOfDeviceswithFailure: ciId === 16801 ? 4 : 0,
+            }]
+          : [],
+      };
+    }
+    return { value: APPLICATIONS };
+  }
 
   if (path.includes("SMS_R_System")) {
     // Exact count: the site honours $count, so the fallback page never runs.

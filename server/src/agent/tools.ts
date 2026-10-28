@@ -1949,6 +1949,63 @@ export const agentTools: ChatCompletionTool[] = [
   {
     type: "function",
     function: {
+      name: "get_configmgr_collection_members",
+      description:
+        "List the devices that are members of a Configuration Manager collection. Use this for 'which devices are in collection X' or to see who a deployment targets.",
+      parameters: {
+        type: "object",
+        properties: {
+          collectionId: {
+            type: "string",
+            description: "Collection ID, e.g. 'SMS00001' or 'DMO00012'.",
+          },
+          top: { type: "number", description: "Maximum devices to return (default 100)." },
+        },
+        required: ["collectionId"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_configmgr_deployment_status",
+      description:
+        "Per-device status for a ConfigMgr deployment, including error codes with their documented meaning and remediation where the code is recognised. Use this to answer 'why are there N errors on this deployment' or 'which devices failed and how do I fix them'. Returns failures by default; set includeAll for the full breakdown. A row with errorRecognised=false means the code is genuinely unknown — say so rather than guessing what it means.",
+      parameters: {
+        type: "object",
+        properties: {
+          deploymentId: {
+            type: "string",
+            description: "The deployment's assignment ID, e.g. '20001'.",
+          },
+          includeAll: {
+            type: "boolean",
+            description: "Include successful and in-progress devices, not just failures.",
+          },
+          top: { type: "number", description: "Maximum rows to return (default 100)." },
+        },
+        required: ["deploymentId"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_configmgr_application_detail",
+      description:
+        "Detail for one Configuration Manager application: description, version, publisher, deployment count, devices with the app and devices with failures.",
+      parameters: {
+        type: "object",
+        properties: {
+          ciId: { type: "string", description: "The application's CI_ID, e.g. '16801'." },
+        },
+        required: ["ciId"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "add_configmgr_collection_member",
       description:
         "DESTRUCTIVE — Add a device to a Configuration Manager collection as a direct membership rule. Requires the AdminService connector to be connected and a confirmation token. Provide the target collectionId plus either a deviceName or a ConfigMgr resourceId.",

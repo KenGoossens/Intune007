@@ -6,10 +6,14 @@ import { getStoredConnection, getDemoMode } from "./connectionStore.js";
 import { DEMO_ADMIN_SERVICE_URL, isDemoHost, demoResponse } from "./demoFixtures.js";
 import type {
   ConfigMgrApplicationInfo,
+  ConfigMgrApplicationDetail,
   ConfigMgrCollectionInfo,
+  ConfigMgrCollectionMember,
   ConfigMgrConnectionStatus,
   ConfigMgrDeploymentInfo,
+  ConfigMgrDeploymentStatusRow,
 } from "@intune-agent/shared";
+import { explainDeploymentError } from "./configmgrErrors.js";
 
 /**
  * Connector for the Configuration Manager AdminService REST API.
@@ -356,6 +360,7 @@ export async function getDeployments(options?: {
   });
   return rows.map((r) => ({
     deploymentId: String(r.DeploymentID ?? ""),
+    assignmentId: num(r.AssignmentID),
     softwareName: String(r.SoftwareName ?? ""),
     collectionName: String(r.CollectionName ?? ""),
     intent: intentLabel(r.DeploymentIntent),
@@ -755,6 +760,181 @@ export async function addCollectionDirectMember(input: {
     ruleName,
     returnValue,
     simulated: isConfigMgrSimulated() || undefined,
+  };
+}
+
+// ─── Drill-down detail (read) ────────────────────────────────────
+
+/** StatusType / AppStatusType, per the SMS_AppDeploymentAssetDetails docs. */
+function deploymentStatusLabel(v: unknown): string {
+  switch (num(v)) {
+    case 1:
+      return "Success";
+    case 2:
+      return "In progress";
+    case 3:
+      return "Requirements not met";
+    case 5:
+      return "Error";
+    default:
+      return "Unknown";
+  }
+}
+
+/** EnforcementState, per the same documentation (0–14). */
+const ENFORCEMENT_STATES: Record<number, string> = {
+  0: "Unknown",
+  1: "Enforcement started",
+  2: "Waiting for content",
+  3: "Waiting for another installation",
+  4: "Waiting for maintenance window",
+  5: "Restart required before installing",
+  6: "General failure",
+  7: "Pending installation",
+  8: "Installing update",
+  9: "Pending system restart",
+  10: "Successfully installed update",
+  11: "Failed to install update",
+  12: "Downloading update",
+  13: "Downloaded update",
+  14: "Failed to download update",
+};
+
+/**
+ * Devices that are members of a collection.
+ *
+ * SMS_FullCollectionMembership carries no OS property, so the shape stays to
+ * what the class documents.
+ */
+export async function getCollectionMembers(
+  collectionId: string,
+  options?: { top?: number }
+): Promise<ConfigMgrCollectionMember[]> {
+  const cm = requireConnected();
+  const id = String(collectionId || "").trim();
+  if (!id) throw new Error("A collectionId is required.");
+
+  const rows = await adminGet<Record<string, unknown>>(
+    cm,
+    "wmi/SMS_FullCollectionMembership",
+    {
+      filter: `CollectionID eq '${id.replace(/'/g, "''")}'`,
+      select: "ResourceID,Name,IsActive,IsClient,ClientVersion,SiteCode,Domain,DeviceCategory",
+      orderby: "Name",
+      top: options?.top ?? DEFAULT_TOP,
+    }
+  );
+
+  return rows.map((r) => ({
+    resourceId: num(r.ResourceID),
+    name: String(r.Name ?? ""),
+    isActive: r.IsActive === true || r.IsActive === 1,
+    isClient: r.IsClient === true || r.IsClient === 1,
+    clientVersion: String(r.ClientVersion ?? ""),
+    siteCode: String(r.SiteCode ?? ""),
+    domain: String(r.Domain ?? ""),
+    deviceCategory: String(r.DeviceCategory ?? ""),
+  }));
+}
+
+/**
+ * Per-device status for one application deployment.
+ *
+ * Only SMS_AppDeploymentErrorAssetDetails carries ErrorCode, so failures are
+ * read from there; `errorsOnly: false` additionally reads the full asset list
+ * for the other states. Neither class carries a description string, so the
+ * readable text comes entirely from the verified error table.
+ */
+export async function getDeploymentStatus(
+  assignmentId: string | number,
+  options?: { top?: number; errorsOnly?: boolean }
+): Promise<ConfigMgrDeploymentStatusRow[]> {
+  const cm = requireConnected();
+  const id = num(assignmentId);
+  if (!id) throw new Error("A numeric deployment (assignment) ID is required.");
+  const top = options?.top ?? DEFAULT_TOP;
+
+  const mapRow = (r: Record<string, unknown>): ConfigMgrDeploymentStatusRow => {
+    const row: ConfigMgrDeploymentStatusRow = {
+      machineName: String(r.MachineName ?? ""),
+      resourceId: num(r.MachineID),
+      status: deploymentStatusLabel(r.StatusType ?? r.AppStatusType),
+    };
+    if (r.EnforcementState !== undefined) {
+      row.enforcementState = ENFORCEMENT_STATES[num(r.EnforcementState)] ?? "Unknown";
+    }
+    if (r.ErrorCode !== undefined && num(r.ErrorCode) !== 0) {
+      const explained = explainDeploymentError(r.ErrorCode);
+      row.errorCode = explained.code ?? undefined;
+      row.errorRecognised = explained.recognised;
+      row.errorDocumentedAs = explained.documentedAs;
+      row.errorMeaning = explained.meaning;
+      row.errorRemediation = explained.remediation;
+      row.errorSource = explained.source;
+    }
+    return row;
+  };
+
+  const errors = await adminGet<Record<string, unknown>>(
+    cm,
+    "wmi/SMS_AppDeploymentErrorAssetDetails",
+    { filter: `AssignmentID eq ${id}`, top }
+  );
+  const rows = errors.map(mapRow);
+
+  if (options?.errorsOnly === false) {
+    const all = await adminGet<Record<string, unknown>>(
+      cm,
+      "wmi/SMS_AppDeploymentAssetDetails",
+      { filter: `AssignmentID eq ${id}`, top }
+    );
+    const seen = new Set(rows.map((r) => r.machineName.toLowerCase()));
+    for (const r of all) {
+      const mapped = mapRow(r);
+      if (!seen.has(mapped.machineName.toLowerCase())) rows.push(mapped);
+    }
+  }
+
+  return rows;
+}
+
+/**
+ * Detail for one application. No $select: the extra properties vary by site
+ * version, and selecting one that does not exist fails the whole request.
+ */
+export async function getApplicationDetail(
+  ciId: string | number
+): Promise<ConfigMgrApplicationDetail | null> {
+  const cm = requireConnected();
+  const id = num(ciId);
+  if (!id) throw new Error("A numeric application CI_ID is required.");
+
+  const rows = await adminGet<Record<string, unknown>>(cm, "wmi/SMS_Application", {
+    filter: `CI_ID eq ${id}`,
+    top: 1,
+  });
+  const r = rows[0];
+  if (!r) return null;
+
+  return {
+    ciId: String(r.CI_ID ?? id),
+    name: String(r.LocalizedDisplayName ?? ""),
+    manufacturer: String(r.Manufacturer ?? ""),
+    version: String(r.SoftwareVersion ?? ""),
+    numberOfDeployments: num(r.NumberOfDeployments),
+    numberOfDevicesWithApp: num(r.NumberOfDevicesWithApp),
+    isDeployed: r.IsDeployed === true || r.IsDeployed === 1,
+    dateCreated: String(r.DateCreated ?? ""),
+    description: r.LocalizedDescription ? String(r.LocalizedDescription) : undefined,
+    dateLastModified: r.DateLastModified ? String(r.DateLastModified) : undefined,
+    createdBy: r.CreatedBy ? String(r.CreatedBy) : undefined,
+    isEnabled: r.IsEnabled === undefined ? undefined : r.IsEnabled === true || r.IsEnabled === 1,
+    isSuperseded:
+      r.IsSuperseded === undefined ? undefined : r.IsSuperseded === true || r.IsSuperseded === 1,
+    numberOfDevicesWithFailure:
+      r.NumberOfDeviceswithFailure === undefined
+        ? undefined
+        : num(r.NumberOfDeviceswithFailure),
   };
 }
 
