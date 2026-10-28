@@ -1222,7 +1222,9 @@ export async function executeTool(
           data: [{
             success: true,
             ...added,
-            message: `Added as a direct member of collection ${added.collectionId}. Collection membership updates after the next evaluation.`,
+            message: added.simulated
+              ? `SIMULATED — demo mode is on, so nothing was changed in any Configuration Manager site. In a real site this would add a direct membership rule to collection ${added.collectionId}.`
+              : `Added as a direct member of collection ${added.collectionId}. Collection membership updates after the next evaluation.`,
           }],
           totalCount: 1,
         };
@@ -1241,9 +1243,11 @@ export async function executeTool(
           data: [{
             success: true,
             ...imported,
-            message: imported.machineExists
-              ? "A matching record already existed and was updated."
-              : "Computer prestaged for OS Deployment.",
+            message: imported.simulated
+              ? "SIMULATED — demo mode is on, so no computer was prestaged in any Configuration Manager site. In a real site this would create the record for OS Deployment."
+              : imported.machineExists
+                ? "A matching record already existed and was updated."
+                : "Computer prestaged for OS Deployment.",
           }],
           totalCount: 1,
         };

@@ -55,6 +55,12 @@ interface ConfigMgrState {
   fetchConnection: () => Promise<void>;
   fetchSite: (resource: SiteResource) => Promise<void>;
 
+  // Demo mode (simulated site data; a real connection always takes precedence)
+  demoMode: boolean;
+  demoSimulating: boolean;
+  fetchDemoMode: () => Promise<void>;
+  setDemoMode: (enabled: boolean) => Promise<void>;
+
   // Connection wizard
   connectionConfig: ConfigMgrConnectionConfig | null;
   fetchConnectionConfig: () => Promise<void>;
@@ -76,7 +82,7 @@ interface ConfigMgrState {
   ) => Promise<{ ok: boolean; error?: string; message?: string }>;
 }
 
-export const useConfigMgrStore = create<ConfigMgrState>((set) => ({
+export const useConfigMgrStore = create<ConfigMgrState>((set, get) => ({
   summary: null,
   isLoading: false,
   error: null,
@@ -150,6 +156,31 @@ export const useConfigMgrStore = create<ConfigMgrState>((set) => ({
     } finally {
       set((s) => ({ siteLoading: { ...s.siteLoading, [resource]: false } }));
     }
+  },
+
+  demoMode: false,
+  demoSimulating: false,
+
+  fetchDemoMode: async () => {
+    try {
+      const res = await fetch("/api/configmgr/demo-mode");
+      const data = (await res.json()) as { enabled: boolean; simulating: boolean };
+      set({ demoMode: data.enabled, demoSimulating: data.simulating });
+    } catch {
+      /* ignore — the toggle just shows its last known state */
+    }
+  },
+
+  setDemoMode: async (enabled) => {
+    const res = await fetch("/api/configmgr/demo-mode", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled }),
+    });
+    const data = (await res.json()) as { enabled: boolean; simulating: boolean };
+    set({ demoMode: data.enabled, demoSimulating: data.simulating });
+    // Site data comes from a different source now, so refresh what's shown.
+    await get().fetchConnection();
   },
 
   connectionConfig: null,

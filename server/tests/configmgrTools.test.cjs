@@ -79,7 +79,13 @@ function loadAdminService({ requests, responder }) {
       },
     },
     '../security.js': { sanitizeErrorMessage: (v) => v },
-    './connectionStore.js': { getStoredConnection: () => null },
+    './connectionStore.js': { getStoredConnection: () => null, getDemoMode: () => false },
+    // Demo mode is off here: these tests assert the real request shapes.
+    './demoFixtures.js': {
+      DEMO_ADMIN_SERVICE_URL: 'https://configmgr.demo.invalid/AdminService',
+      isDemoHost: () => false,
+      demoResponse: () => ({}),
+    },
     '@intune-agent/shared': {},
   };
 

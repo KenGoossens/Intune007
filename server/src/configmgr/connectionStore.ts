@@ -33,8 +33,32 @@ function getDb(): Database.Database {
       allow_insecure_tls INTEGER NOT NULL DEFAULT 0,
       updated_at         TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS settings (
+      key   TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
   `);
   return db;
+}
+
+const DEMO_MODE_KEY = "demoMode";
+
+/** True when ConfigMgr demo mode is switched on. */
+export function getDemoMode(): boolean {
+  const row = getDb()
+    .prepare("SELECT value FROM settings WHERE key = ?")
+    .get(DEMO_MODE_KEY) as { value: string } | undefined;
+  return row?.value === "1";
+}
+
+export function setDemoMode(enabled: boolean): void {
+  getDb()
+    .prepare(
+      `INSERT INTO settings (key, value) VALUES (?, ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+    )
+    .run(DEMO_MODE_KEY, enabled ? "1" : "0");
 }
 
 export interface StoredConnection {

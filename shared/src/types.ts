@@ -699,6 +699,8 @@ export interface ConfigMgrConnectionStatus {
   siteName?: string;
   version?: string;
   error?: string;
+  /** True when this data is simulated by demo mode rather than read from a site. */
+  simulated?: boolean;
 }
 
 /** A ConfigMgr collection (SMS_Collection). */

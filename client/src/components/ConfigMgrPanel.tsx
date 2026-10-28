@@ -611,7 +611,16 @@ function SiteTab() {
   return (
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-2">
-        {connection?.connected ? (
+        {connection?.simulated ? (
+          <div className="flex items-center gap-2 text-xs text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2 flex-1">
+            <AlertTriangle size={14} className="shrink-0" />
+            <span>
+              <strong>Simulated data</strong> — demo mode is on and no ConfigMgr
+              site is connected. Everything below is sample data and writes change
+              nothing. Turn it off in Settings.
+            </span>
+          </div>
+        ) : connection?.connected ? (
           <div className="flex items-center gap-2 text-xs text-green-400 bg-green-500/10 border border-green-500/30 rounded-lg px-3 py-2 flex-1">
             <CheckCircle2 size={14} className="shrink-0" />
             <span>

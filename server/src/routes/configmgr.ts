@@ -11,6 +11,7 @@ import {
   getDeployments,
   getApplications,
   isConfigMgrConfigured,
+  isConfigMgrSimulated,
   resetConfigMgrAuthCache,
   runCmPivot,
 } from "../configmgr/adminService.js";
@@ -19,6 +20,8 @@ import {
   getStoredConnection,
   saveStoredConnection,
   clearStoredConnection,
+  getDemoMode,
+  setDemoMode,
 } from "../configmgr/connectionStore.js";
 import { sanitizeErrorMessage, auditLog } from "../security.js";
 
@@ -194,6 +197,34 @@ router.delete("/connection", (_req: Request, res: Response) => {
   clearStoredConnection();
   resetConfigMgrAuthCache();
   res.json({ ok: true });
+});
+
+/**
+ * GET /api/configmgr/demo-mode
+ * Whether ConfigMgr site data is being simulated.
+ */
+router.get("/demo-mode", (_req: Request, res: Response) => {
+  res.json({ enabled: getDemoMode(), simulating: isConfigMgrSimulated() });
+});
+
+/**
+ * POST /api/configmgr/demo-mode  { enabled: boolean }
+ * Turn simulated ConfigMgr site data on or off. A real connection always takes
+ * precedence, so enabling this while one is configured changes nothing.
+ */
+router.post("/demo-mode", (req: Request, res: Response) => {
+  const enabled = req.body?.enabled === true;
+  setDemoMode(enabled);
+  resetConfigMgrAuthCache();
+  auditLog({
+    timestamp: new Date().toISOString(),
+    toolName: "configmgr_demo_mode",
+    args: { enabled },
+    isDestructive: false,
+    confirmed: true,
+    result: "success",
+  });
+  res.json({ ok: true, enabled, simulating: isConfigMgrSimulated() });
 });
 
 /**

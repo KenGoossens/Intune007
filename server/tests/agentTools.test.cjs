@@ -95,6 +95,7 @@ async function runModelHarness({ result, history = [], stream = false }) {
     '../security.js': { validateToolArgs: (_name, args) => args, getEffectiveDisabledTools: () => [] },
     './learningEngine.js': { buildLearningContext: () => '', logInteraction() {} },
     '../rag/engine.js': { searchDocs: async () => [], buildDocContext: () => '' },
+    '../configmgr/adminService.js': { isConfigMgrSimulated: () => false },
   });
   await runAgentLoop('How many devices?', history, { onToolCall() {}, onToolResult: (_name, value) => rendered.push(value), onToken() {}, onDone() {}, onError: error => errors.push(error) }, [], { stream });
   assert.deepEqual(errors, []);

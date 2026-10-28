@@ -14,6 +14,7 @@ import { getRecentContext } from "./memory.js";
 import { validateToolArgs, sanitizeForSystemPrompt, scanPowerShellScript, sanitizeErrorMessage, getEffectiveDisabledTools } from "../security.js";
 import { buildLearningContext, logInteraction } from "./learningEngine.js";
 import { searchDocs, buildDocContext } from "../rag/engine.js";
+import { isConfigMgrSimulated } from "../configmgr/adminService.js";
 
 const SYSTEM_PROMPT = `You are an Intune administration assistant called "Intune007 Agent". You are a world-class expert on Microsoft Intune, Microsoft Endpoint Manager, Microsoft Entra ID (Azure AD), and the Microsoft Graph API. You help IT administrators query, understand, and manage their Microsoft Intune environment.
 
@@ -456,6 +457,11 @@ export async function runAgentLoop(
   }
 
   let systemContent = SYSTEM_PROMPT;
+  if (isConfigMgrSimulated()) {
+    systemContent +=
+      "\n\n--- ConfigMgr demo mode is ACTIVE ---\n" +
+      "No Configuration Manager site is connected. Every ConfigMgr site result — collections, deployments, applications, device counts, collection membership, CMPivot — is SIMULATED sample data, and writes change nothing. Say plainly that the data is simulated whenever you report ConfigMgr site results, and never present it as the user's real environment. Co-management data read from Intune (client health, workload split) is still real.";
+  }
   if (memoryContext) {
     systemContent += `\n\n--- Agent Memory (saved notes) ---\n${sanitizeForSystemPrompt(memoryContext)}`;
   }

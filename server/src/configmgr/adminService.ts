@@ -2,7 +2,8 @@ import https from "node:https";
 import { ClientSecretCredential } from "@azure/identity";
 import { config } from "../config.js";
 import { sanitizeErrorMessage } from "../security.js";
-import { getStoredConnection } from "./connectionStore.js";
+import { getStoredConnection, getDemoMode } from "./connectionStore.js";
+import { DEMO_ADMIN_SERVICE_URL, isDemoHost, demoResponse } from "./demoFixtures.js";
 import type {
   ConfigMgrApplicationInfo,
   ConfigMgrCollectionInfo,
@@ -68,7 +69,28 @@ export function resolveConfig(
   if (override && override.adminServiceUrl) return withCredFallback(override);
   const stored = getStoredConnection();
   if (stored) return withCredFallback(stored);
+  if (config.configMgr.adminServiceUrl) return withCredFallback(config.configMgr);
+
+  // Demo mode is the LAST fallback, so a real connection always wins by
+  // construction rather than by a condition that could be got wrong later.
+  if (getDemoMode()) {
+    return {
+      adminServiceUrl: DEMO_ADMIN_SERVICE_URL,
+      authMode: "none",
+      resource: "",
+      tenantId: "",
+      clientId: "",
+      clientSecret: "",
+      bearerToken: "",
+      allowInsecureTls: false,
+    };
+  }
   return withCredFallback(config.configMgr);
+}
+
+/** True when ConfigMgr data is being simulated rather than read from a site. */
+export function isConfigMgrSimulated(): boolean {
+  return resolveConfig().adminServiceUrl === DEMO_ADMIN_SERVICE_URL;
 }
 
 /** True when an AdminService base URL is configured (via UI store or env). */
@@ -159,6 +181,16 @@ function httpsJsonRequest(
     }
     if (u.protocol !== "https:") {
       return reject(new Error("The AdminService URL must use HTTPS."));
+    }
+
+    // Demo mode: answer from fixtures instead of opening a socket. Everything
+    // above this line — URL building, method paths, bodies — already ran.
+    if (isDemoHost(fullUrl)) {
+      try {
+        return resolve(demoResponse(method, fullUrl, body));
+      } catch (err) {
+        return reject(err instanceof Error ? err : new Error(String(err)));
+      }
     }
 
     const payload = body !== undefined ? Buffer.from(JSON.stringify(body)) : undefined;
@@ -389,6 +421,7 @@ export async function getConfigMgrConnectionStatus(
       siteCode: site.SiteCode ? String(site.SiteCode) : undefined,
       siteName: site.SiteName ? String(site.SiteName) : undefined,
       version: site.Version ? String(site.Version) : undefined,
+      simulated: isConfigMgrSimulated() || undefined,
     };
   } catch (err) {
     return {
@@ -675,6 +708,7 @@ export async function addCollectionDirectMember(input: {
   resourceId: number;
   ruleName: string;
   returnValue: number;
+  simulated?: boolean;
 }> {
   const cm = requireConnected();
   const collectionId = String(input.collectionId || "").trim();
@@ -715,7 +749,13 @@ export async function addCollectionDirectMember(input: {
       `ConfigMgr rejected the membership rule (return value ${returnValue}).`
     );
   }
-  return { collectionId, resourceId, ruleName, returnValue };
+  return {
+    collectionId,
+    resourceId,
+    ruleName,
+    returnValue,
+    simulated: isConfigMgrSimulated() || undefined,
+  };
 }
 
 // ─── OSD prestaging (write) ──────────────────────────────────────
@@ -741,6 +781,7 @@ export async function importMachineEntry(input: {
   machineExists: boolean;
   resourceId: number;
   smsUniqueIdentifier: string;
+  simulated?: boolean;
 }> {
   const cm = requireConnected();
   const netbiosName = String(input.netbiosName || "").trim();
@@ -777,6 +818,7 @@ export async function importMachineEntry(input: {
     machineExists: response.MachineExists === true,
     resourceId: num(response.ResourceID),
     smsUniqueIdentifier: String(response.SMSUniqueIdentifier ?? ""),
+    simulated: isConfigMgrSimulated() || undefined,
   };
 }
 
