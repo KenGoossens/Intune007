@@ -22,6 +22,7 @@ import {
   disconnectTenant,
   getActiveTenantId,
   buildAdminConsentUrl,
+  checkConsentReadiness,
 } from "../graph/tenantManager.js";
 import { isValidUUID, sanitizeErrorMessage } from "../security.js";
 
@@ -96,12 +97,26 @@ router.delete("/:tenantId", (req, res) => {
  * Returns the admin-consent URL the client should open in a popup.
  * tenantId is optional — pass "common" or omit to let the admin choose.
  */
-router.get("/consent-url", (req, res) => {
+router.get("/consent-url", async (req, res) => {
   pruneStates();
 
   const requested = typeof req.query.tenantId === "string" ? req.query.tenantId : "common";
   if (requested !== "common" && !isValidUUID(requested) && !/^[\w.-]+\.[\w.-]+$/.test(requested)) {
     return res.status(400).json({ error: "Invalid tenantId — must be a UUID, domain, or 'common'." });
+  }
+
+  // Check our own registration first. Entra raises both of these failures on
+  // its own sign-in page without redirecting, so the callback below never sees
+  // them — explaining them here is the only chance to say anything useful, and
+  // it saves asking another tenant's admin to click a link that cannot work.
+  const readiness = await checkConsentReadiness();
+  if (!readiness.ready) {
+    return res.status(409).json({
+      error:
+        "This app registration cannot be consented in another tenant yet:\n\n" +
+        readiness.blockers.map((b) => `• ${b}`).join("\n\n"),
+      blockers: readiness.blockers,
+    });
   }
 
   const state = randomBytes(32).toString("hex");
@@ -144,11 +159,13 @@ router.get("/consent-callback", async (req, res) => {
   }
   consentStates.delete(state);
 
-  // Surface any error from Azure AD.
+  // Surface any error from Azure AD. Only errors raised after Entra has
+  // validated the redirect URI arrive here; the registration-level ones
+  // (AADSTS700016, AADSTS50011) are caught by the preflight on /consent-url.
   if (errorCode) {
     return res.type("html").send(renderCallback({
       ok: false,
-      message: `Azure AD error: ${errorCode} — ${errorDesc || "no description"}`,
+      message: explainConsentError(errorCode, errorDesc),
     }));
   }
 
@@ -173,6 +190,35 @@ router.get("/consent-callback", async (req, res) => {
     }));
   }
 });
+
+/**
+ * Turn an Entra consent error into something a person can act on. Unknown codes
+ * keep their original text rather than being given an invented meaning.
+ */
+function explainConsentError(code: string, description: string): string {
+  const known: Record<string, string> = {
+    access_denied:
+      "The administrator declined consent, or cancelled the sign-in. Nothing was changed in that tenant.",
+    AADSTS65004:
+      "The administrator declined consent. Nothing was changed in that tenant.",
+    AADSTS90094:
+      "The account that signed in is not a Global Administrator in that tenant. " +
+      "Granting these permissions is tenant-wide, so only a Global Administrator can do it.",
+    AADSTS650056:
+      "The app is misconfigured for that tenant, or the admin signed in to a different " +
+      "tenant than the one requested.",
+  };
+
+  // The description carries the AADSTS code even when `error` is a generic
+  // OAuth code such as access_denied, so match on both.
+  const matched = Object.keys(known).find(
+    (k) => k === code || description.includes(k)
+  );
+  const detail = description || "no description";
+  return matched
+    ? `${known[matched]}\n\n(Entra reported: ${code} — ${detail})`
+    : `Entra error: ${code} — ${detail}`;
+}
 
 // ─── HTML callback page ───────────────────────────────────────────
 // Posts a message to window.opener (the React app) and closes the popup.

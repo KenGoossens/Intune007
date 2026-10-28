@@ -221,6 +221,96 @@ export function disconnectTenant(tenantId: string): {
 }
 
 /**
+ * Why a consent attempt would fail, read from our own app registration.
+ *
+ * Both of these errors are raised by Entra on its own sign-in page, before it
+ * will redirect anywhere — it refuses to send a browser to a redirect URI it
+ * has not validated. That means the consent callback never runs and cannot
+ * report them. The only place they can be explained is here, before the popup
+ * opens.
+ */
+export interface ConsentReadiness {
+  ready: boolean;
+  blockers: string[];
+  signInAudience?: string;
+}
+
+const READINESS_TTL_MS = 60_000;
+let readinessCache: { at: number; value: ConsentReadiness } | null = null;
+
+export async function checkConsentReadiness(): Promise<ConsentReadiness> {
+  if (readinessCache && Date.now() - readinessCache.at < READINESS_TTL_MS) {
+    return readinessCache.value;
+  }
+
+  const expectedRedirect = `${config.appBaseUrl}/api/tenants/consent-callback`;
+  const blockers: string[] = [];
+  let signInAudience: string | undefined;
+
+  try {
+    const home = buildClient(config.azureAd.tenantId);
+    const apps = await home
+      .api("/applications")
+      .filter(`appId eq '${config.azureAd.clientId}'`)
+      .select("signInAudience,web")
+      .get();
+    const app = apps?.value?.[0];
+
+    if (!app) {
+      console.warn(
+        "[consent] readiness check: app registration not visible to this token " +
+          "(Application.Read.All may not be granted)"
+      );
+      // Reading our own registration needs Application.Read.All. Without it we
+      // cannot tell ready from not-ready, and blocking on a check we could not
+      // run would be worse than letting the attempt proceed.
+      return cacheReadiness({ ready: true, blockers: [] });
+    }
+
+    signInAudience = String(app.signInAudience ?? "");
+    if (signInAudience === "AzureADMyOrg") {
+      blockers.push(
+        "The app registration is single-tenant (signInAudience: AzureADMyOrg), so it does not " +
+          "exist in any other directory and no enterprise application can be created there. " +
+          "Entra reports this as AADSTS700016. Fix: Entra admin centre → App registrations → " +
+          `${config.azureAd.clientId} → Authentication → Supported account types → ` +
+          '"Accounts in any organizational directory".'
+      );
+    }
+
+    const redirectUris: string[] = Array.isArray(app.web?.redirectUris)
+      ? app.web.redirectUris.map(String)
+      : [];
+    if (!redirectUris.some((u) => u.toLowerCase() === expectedRedirect.toLowerCase())) {
+      blockers.push(
+        `The consent callback "${expectedRedirect}" is not a registered redirect URI, so Entra ` +
+          "will refuse the redirect after the admin has already signed in (AADSTS50011). " +
+          "Fix: same registration → Authentication → Web → Redirect URIs → add that exact URL."
+      );
+    }
+  } catch (err) {
+    // A readiness check that cannot complete must not block a consent attempt
+    // that might well succeed — but it must say so, or a broken check is
+    // indistinguishable from a healthy registration.
+    console.warn(
+      "[consent] readiness check could not read the app registration:",
+      err instanceof Error ? err.message : String(err)
+    );
+    return cacheReadiness({ ready: true, blockers: [] });
+  }
+
+  return cacheReadiness({ ready: blockers.length === 0, blockers, signInAudience });
+}
+
+function cacheReadiness(value: ConsentReadiness): ConsentReadiness {
+  // Only a ready result is cached. Blockers are fixed in the Entra portal and
+  // the user retries straight afterwards — serving them a stale failure for up
+  // to a minute would look like the fix had not worked.
+  if (value.ready) readinessCache = { at: Date.now(), value };
+  return value;
+}
+
+/**
  * Build the Azure AD admin-consent URL for a target tenant. Pass `"common"`
  * to let the admin choose their tenant during sign-in.
  */

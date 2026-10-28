@@ -209,7 +209,7 @@ export default function TenantSwitcher() {
 
             {statusMsg && (
               <div
-                className={`mt-3 px-3 py-2 rounded text-[11px] ${
+                className={`mt-3 px-3 py-2 rounded text-[11px] whitespace-pre-line ${
                   statusMsg.kind === "ok" ? "bg-emerald-900/40 text-emerald-300 border border-emerald-800/60" : "bg-red-900/40 text-red-300 border border-red-800/60"
                 }`}
               >
@@ -258,7 +258,7 @@ export default function TenantSwitcher() {
               statusMsg.kind === "ok" ? "bg-emerald-900 text-emerald-100 border border-emerald-700" : "bg-red-900 text-red-100 border border-red-700"
             }`}
           >
-            <span className="flex-1">{statusMsg.text}</span>
+            <span className="flex-1 whitespace-pre-line">{statusMsg.text}</span>
             <button onClick={() => setStatusMsg(null)} className="text-current opacity-70 hover:opacity-100">
               <X size={12} />
             </button>
